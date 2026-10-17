@@ -59,21 +59,12 @@ def create_title_bar(page, on_minimize, on_close):
         )
     )
 
-def create_header(on_theme_toggle=None, on_settings_click=None):
+def create_header(on_settings_click=None):
     return ft.Row(
         controls=[
             ft.Text("MSB Recorder Studio", size=16, weight=ft.FontWeight.BOLD, color="white"),
             ft.Row(
                 controls=[
-                    ft.IconButton(
-                        icon=ft.Icons.NIGHTLIGHT_ROUNDED,
-                        icon_size=16,
-                        icon_color="white",
-                        bgcolor=CARD_BG,
-                        style=ft.ButtonStyle(shape=ft.CircleBorder()),
-                        on_click=on_theme_toggle,
-                        tooltip="Toggle Theme",
-                    ),
                     ft.IconButton(
                         icon=ft.Icons.SETTINGS_OUTLINED,
                         icon_size=16,
@@ -250,21 +241,29 @@ def get_include_options(include_states=None, on_toggle=None):
     )
     return row1, row2
 
-def get_record_controls():
+def get_record_controls(is_recording=False, on_record_click=None):
+    # රෙකෝඩින් වන විට Red පාටත්, නැති විට Purple (#6C5CE7) පාටත් වීම
+    btn_bgcolor = ACCENT_RED if is_recording else "#6C5CE7"
+    
+    # රෙකෝඩින් වන විට Stop (කොටුවක හැඩයක් ඇති අයිකනය) එකත්, නැති විට Play (ත්‍රිකෝණාකාර අයිකනය) එකත් යෙදීම
+    inner_content = ft.Icon(
+        ft.Icons.STOP_ROUNDED if is_recording else ft.Icons.PLAY_ARROW_ROUNDED,
+        color="white",
+        size=26 if is_recording else 30,
+    )
+
     record_button = ft.Container(
-        content=ft.Container(
-            width=18,
-            height=18,
-            border=card_border("white"),
-            border_radius=9,
-        ),
+        content=inner_content,
         width=60,
         height=60,
         shape=ft.BoxShape.CIRCLE,
-        bgcolor=ACCENT_RED,
+        bgcolor=btn_bgcolor,
         alignment=ft.alignment.Alignment(0, 0),
-        shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color="#FF4B4B44"),
+        shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=f"{btn_bgcolor}44"),
+        on_click=on_record_click,
+        ink=True,
     )
+    
     small_btn_left = ft.IconButton(
         icon=ft.Icons.ADD_A_PHOTO_OUTLINED,
         icon_color="white",
@@ -283,6 +282,9 @@ def get_record_controls():
         width=38,
         height=38,
     )
+    
+    status_text = "Recording in progress..." if is_recording else "Press F9 to start"
+
     return ft.Column(
         controls=[
             ft.Row(
@@ -291,7 +293,7 @@ def get_record_controls():
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=20,
             ),
-            ft.Text("Press F9 to start", color=TEXT_MUTED, size=11),
+            ft.Text(status_text, color=ACCENT_RED if is_recording else TEXT_MUTED, size=11),
         ],
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         spacing=6,

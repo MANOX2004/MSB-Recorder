@@ -64,14 +64,6 @@ def main(page: ft.Page):
             open_coming_soon_dialog(None)
         update_ui()
 
-    # Night Mode / Light Mode Toggle Function
-    def toggle_theme(e):
-        if page.theme_mode == ft.ThemeMode.DARK:
-            page.theme_mode = ft.ThemeMode.LIGHT
-        else:
-            page.theme_mode = ft.ThemeMode.DARK
-        page.update()
-
     # Snipping Tool වැනි Area Selector එක (Ultimate Stable Version)
     def open_area_selector(e):
         import os
@@ -332,7 +324,7 @@ def main(page: ft.Page):
 
         controls_list = [
             create_title_bar(page, minimize_window, close_window),
-            create_header(on_theme_toggle=toggle_theme, on_settings_click=open_settings_dialog),
+            create_header(on_settings_click=open_settings_dialog),
             section_title("WHAT TO RECORD"),
             get_what_to_record(selected_mode=current_mode, on_select=on_mode_change),
         ]
