@@ -28,7 +28,7 @@ def create_title_bar(page, on_minimize, on_close):
                                 padding=5,
                                 border_radius=6,
                             ),
-                            ft.Text("ScreenForge", size=13, weight=ft.FontWeight.BOLD, color="white"),
+                            ft.Text("MSB Recorder", size=13, weight=ft.FontWeight.BOLD, color="white"),
                         ],
                         spacing=6,
                     ),
@@ -61,7 +61,7 @@ def create_title_bar(page, on_minimize, on_close):
 def create_header():
     return ft.Row(
         controls=[
-            ft.Text("ScreenForge Studio", size=16, weight=ft.FontWeight.BOLD, color="white"),
+            ft.Text("MSB Recorder Studio", size=16, weight=ft.FontWeight.BOLD, color="white"),
             ft.Row(
                 controls=[
                     ft.IconButton(
