@@ -10,7 +10,7 @@ from logic import get_all_open_windows
 
 def main(page: ft.Page):
     # Window Settings
-    page.title = "ScreenForge"
+    page.title = "MSB Recorder"
     page.window.width = 410
     page.window.height = 680
     page.window.resizable = False
