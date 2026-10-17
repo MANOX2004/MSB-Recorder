@@ -358,7 +358,7 @@ def main(page: ft.Page):
         content=content_column,
         bgcolor=BG_COLOR,
         border_radius=16,
-        border=card_border(BORDER_COLOR),
+        border=card_border("#6C5CE7"),
         padding=16,
         expand=True,
     )
