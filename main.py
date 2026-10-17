@@ -21,7 +21,7 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.DARK
 
     # State Variables
-    current_mode = "Screen"
+    current_mode = "Screens"
     selected_window_title = "None"
     content_column = ft.Column(spacing=8)
 
