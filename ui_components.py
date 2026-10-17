@@ -192,27 +192,46 @@ def get_display_dropdown():
         focused_border_color="#6C5CE7",
     )
 
-def get_include_options():
-    def chip_option(icon, label, is_selected=False):
+def get_include_options(include_states=None, on_toggle=None):
+    if include_states is None:
+        include_states = {
+            "System audio": True,
+            "Mic": False,
+            "Webcam": False,
+            "Cursor": True,
+            "Clicks": False,
+            "Keys": False
+        }
+
+    def chip_option(icon, label):
+        is_selected = include_states.get(label, False)
         b_color = "#6C5CE7" if is_selected else BORDER_COLOR
+        bg_col = "#222332" if is_selected else CARD_BG
+        
+        def on_click_action(e):
+            if on_toggle:
+                on_toggle(label)
+
         return ft.Container(
             content=ft.Row(
                 controls=[
-                    ft.Icon(icon, color="white", size=14),
-                    ft.Text(label, color="white", size=11, weight=ft.FontWeight.W_500),
+                    ft.Icon(icon, color="white" if is_selected else TEXT_MUTED, size=14),
+                    ft.Text(label, color="white" if is_selected else TEXT_MUTED, size=11, weight=ft.FontWeight.W_500),
                 ],
                 tight=True,
                 spacing=5,
             ),
-            bgcolor=CARD_BG,
+            bgcolor=bg_col,
             border=card_border(b_color),
             border_radius=16,
             padding=8,
+            on_click=on_click_action,
+            ink=True,
         )
     
     row1 = ft.Row(
         controls=[
-            chip_option(ft.Icons.VOLUME_UP_ROUNDED, "System audio", True),
+            chip_option(ft.Icons.VOLUME_UP_ROUNDED, "System audio"),
             chip_option(ft.Icons.MIC_ROUNDED, "Mic"),
             chip_option(ft.Icons.CAMERA_ALT_ROUNDED, "Webcam"),
         ],

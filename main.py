@@ -1,6 +1,6 @@
 import flet as ft
 from ui_components import (
-    BG_COLOR, BORDER_COLOR, CARD_BG, TEXT_MUTED,
+    BG_COLOR, BORDER_COLOR, CARD_BG, TEXT_MUTED, card_border,
     create_title_bar, create_header, section_title,
     get_what_to_record, get_window_picker_ui, get_display_dropdown,
     get_include_options, get_quality_options,
@@ -23,6 +23,25 @@ def main(page: ft.Page):
     # State Variables
     current_mode = "Screen"
     selected_window_title = "None"
+    
+    # Include Options State (Main screen buttons සඳහා)
+    include_states = {
+        "System audio": True,
+        "Mic": False,
+        "Webcam": False,
+        "Cursor": True,
+        "Clicks": False,
+        "Keys": False
+    }
+
+    # Settings වල Advanced Dropdown States (උදාහරණ සඳහා Audio Source / Webcam Source වැනි ඒවා)
+    advanced_settings = {
+        "Audio Source": "Default System Audio",
+        "Microphone": "None",
+        "Webcam Source": "HD Camera",
+        "Cursor Highlight": "Enabled"
+    }
+
     content_column = ft.Column(spacing=8)
 
     def minimize_window(e):
@@ -37,7 +56,7 @@ def main(page: ft.Page):
         current_mode = mode
         update_ui()
 
-    # 1. Night Mode / Light Mode Toggle Function
+    # Night Mode / Light Mode Toggle Function
     def toggle_theme(e):
         if page.theme_mode == ft.ThemeMode.DARK:
             page.theme_mode = ft.ThemeMode.LIGHT
@@ -45,20 +64,13 @@ def main(page: ft.Page):
             page.theme_mode = ft.ThemeMode.DARK
         page.update()
 
-    # 2. Settings Dialog Window Function
-    # 2. Settings Dialog Window Function
-    # 2. Settings Dialog Window Function (Display Dropdown එක සමඟ)
+    # Settings Dialog Window Function (Advanced Dropdowns සමඟ)
     def open_settings_dialog(e):
-        from logic import get_connected_displays
-        
         displays = get_connected_displays()
-        dropdown_options = [
-            ft.dropdown.Option(text=disp) for disp in displays
-        ]
-
+        
         display_dropdown = ft.Dropdown(
             value=displays[0] if displays else None,
-            options=dropdown_options,
+            options=[ft.dropdown.Option(text=disp) for disp in displays],
             bgcolor=CARD_BG,
             border_color=BORDER_COLOR,
             color="white",
@@ -69,25 +81,54 @@ def main(page: ft.Page):
             focused_border_color="#6C5CE7",
         )
 
+        # Advanced Dropdowns for Include features
+        # Advanced Dropdowns for Include features (on_change ඉවත් කර ඇත)
+        audio_dropdown = ft.Dropdown(
+            value=advanced_settings["Audio Source"],
+            options=[
+                ft.dropdown.Option("Default System Audio"), 
+                ft.dropdown.Option("Speakers Only"), 
+                ft.dropdown.Option("Mute All")
+            ],
+            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
+        )
+
+        mic_dropdown = ft.Dropdown(
+            value=advanced_settings["Microphone"],
+            options=[
+                ft.dropdown.Option("None"), 
+                ft.dropdown.Option("Default Microphone"), 
+                ft.dropdown.Option("External Mic")
+            ],
+            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
+        )
+
+        webcam_dropdown = ft.Dropdown(
+            value=advanced_settings["Webcam Source"],
+            options=[
+                ft.dropdown.Option("HD Camera"), 
+                ft.dropdown.Option("OBS Virtual Camera"), 
+                ft.dropdown.Option("Disabled")
+            ],
+            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
+        )
+
         settings_dialog = ft.AlertDialog(
-            title=ft.Text("Settings & Displays", size=14, color="white", weight=ft.FontWeight.BOLD),
+            title=ft.Text("Advanced Settings", size=14, color="white", weight=ft.FontWeight.BOLD),
             content=ft.Container(
                 content=ft.Column([
-                    ft.Text("Select Target Display", size=11, color=TEXT_MUTED),
+                    ft.Text("Select Target Display", size=11, color=TEXT_MUTED, weight=ft.FontWeight.BOLD),
                     display_dropdown,
                     ft.Divider(height=10, color=BORDER_COLOR),
-                    ft.Text("Recorder Preferences", size=11, color=TEXT_MUTED),
-                    ft.Row([
-                        ft.Text("Save logs automatically", color="white", size=12),
-                        ft.Switch(value=True),
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    ft.Row([
-                        ft.Text("Hardware Acceleration", color="white", size=12),
-                        ft.Switch(value=True),
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ], tight=True, spacing=10),
-                width=320,
-                height=240,
+                    ft.Text("Advanced Audio Source", size=11, color=TEXT_MUTED, weight=ft.FontWeight.BOLD),
+                    audio_dropdown,
+                    ft.Text("Microphone Device", size=11, color=TEXT_MUTED, weight=ft.FontWeight.BOLD),
+                    mic_dropdown,
+                    ft.Text("Webcam Device", size=11, color=TEXT_MUTED, weight=ft.FontWeight.BOLD),
+                    webcam_dropdown,
+                ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO),
+                width=340,
+                height=350,
             ),
             bgcolor=BG_COLOR,
         )
@@ -121,12 +162,7 @@ def main(page: ft.Page):
                     bgcolor=CARD_BG,
                     padding=10,
                     border_radius=6,
-                    border=ft.Border(
-                        top=ft.BorderSide(1, BORDER_COLOR),
-                        bottom=ft.BorderSide(1, BORDER_COLOR),
-                        left=ft.BorderSide(1, BORDER_COLOR),
-                        right=ft.BorderSide(1, BORDER_COLOR),
-                    ),
+                    border=card_border(BORDER_COLOR),
                     on_click=lambda _, w=win: select_window_and_close(w, dialog_ref[0]),
                 )
             )
@@ -148,7 +184,13 @@ def main(page: ft.Page):
 
     def update_ui():
         content_column.controls.clear()
-        inc1, inc2 = get_include_options()
+
+        # Main screen එකේ Include buttons සඳහා action එක සකස් කිරීම
+        def toggle_include_option(label):
+            include_states[label] = not include_states[label]
+            update_ui()
+
+        inc1, inc2 = get_include_options(include_states, toggle_include_option)
 
         controls_list = [
             create_title_bar(page, minimize_window, close_window),
@@ -160,7 +202,7 @@ def main(page: ft.Page):
         if current_mode == "Window":
             controls_list.append(get_window_picker_ui(selected_window_title, open_window_picker_dialog))
 
-        # මෙහි තිබූ get_display_dropdown() ඉවත් කර ඇත (දැන් එය settings window එක ඇතුළේ ඇත)
+        # ප්‍රධාන තිරයේ පරණ පරිදිම Include buttons පෙන්වීම
         controls_list.extend([
             section_title("INCLUDE"),
             inc1,
@@ -179,12 +221,7 @@ def main(page: ft.Page):
         content=content_column,
         bgcolor=BG_COLOR,
         border_radius=16,
-        border=ft.Border(
-            top=ft.BorderSide(1, BORDER_COLOR),
-            bottom=ft.BorderSide(1, BORDER_COLOR),
-            left=ft.BorderSide(1, BORDER_COLOR),
-            right=ft.BorderSide(1, BORDER_COLOR),
-        ),
+        border=card_border(BORDER_COLOR),
         padding=16,
         expand=True,
     )
