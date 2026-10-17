@@ -3,7 +3,7 @@ from ui_components import (
     BG_COLOR, BORDER_COLOR, CARD_BG, TEXT_MUTED, card_border,
     create_title_bar, create_header, section_title,
     get_what_to_record, get_window_picker_ui, get_display_dropdown,
-    get_include_options, get_quality_options,
+    get_include_options,
     get_record_controls, get_footer
 )
 from logic import get_all_open_windows, get_connected_displays
@@ -11,8 +11,8 @@ from logic import get_all_open_windows, get_connected_displays
 def main(page: ft.Page):
     # Window Settings
     page.title = "MSB Recorder"
-    page.window.width = 410
-    page.window.height = 680
+    page.window.width = 380
+    page.window.height = 510
     page.window.resizable = False
     page.window.frameless = True
     page.window.bgcolor = ft.Colors.TRANSPARENT
@@ -35,7 +35,7 @@ def main(page: ft.Page):
         "Keys": False
     }
 
-    # Settings වල Advanced Dropdown States (උදාහරණ සඳහා Audio Source / Webcam Source වැනි ඒවා)
+    # Settings වල Advanced Dropdown States
     advanced_settings = {
         "Audio Source": "Default System Audio",
         "Microphone": "None",
@@ -43,7 +43,12 @@ def main(page: ft.Page):
         "Cursor Highlight": "Enabled"
     }
 
-    content_column = ft.Column(spacing=8)
+    # මෙතැන expand=True සහ SPACE_BETWEEN මඟින් මුළු ඉඩ හරියටම බෙදා හරිනු ලැබේ
+    content_column = ft.Column(
+        spacing=8,
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        expand=True
+    )
 
     def minimize_window(e):
         page.window.minimized = True
@@ -56,7 +61,7 @@ def main(page: ft.Page):
         nonlocal current_mode
         current_mode = mode
         if mode == "Area":
-            open_area_selector(None)
+            open_coming_soon_dialog(None)
         update_ui()
 
     # Night Mode / Light Mode Toggle Function
@@ -67,18 +72,17 @@ def main(page: ft.Page):
             page.theme_mode = ft.ThemeMode.DARK
         page.update()
 
-    # Snipping Tool වැනි Area Selector එක විවෘත කිරීම
+    # Snipping Tool වැනි Area Selector එක (Ultimate Stable Version)
     def open_area_selector(e):
         import os
         import pyautogui
         
-        # 1. Screen එකේ තාවකාලික screenshot එකක් ගැනීම
         screenshot_path = "temp_screenshot.png"
         screenshot = pyautogui.screenshot()
         screenshot.save(screenshot_path)
 
-        # Selected area values
-        start_x, start_y = 0, 0
+        coords = {"start_x": 0, "start_y": 0}
+
         rect_container = ft.Container(
             bgcolor=ft.Colors.with_opacity(0.3, "#6C5CE7"),
             border=ft.Border(
@@ -87,38 +91,38 @@ def main(page: ft.Page):
                 left=ft.BorderSide(2, "#6C5CE7"),
                 right=ft.BorderSide(2, "#6C5CE7"),
             ),
+            left=0,
+            top=0,
+            width=0,
+            height=0,
             visible=False
         )
 
         def on_pan_start(evt: ft.DragStartEvent):
-            nonlocal start_x, start_y
-            start_x, start_y = evt.local_x, evt.local_y
-            rect_container.left = start_x
-            rect_container.top = start_y
+            coords["start_x"] = getattr(evt, 'local_x', getattr(evt, 'x', 100))
+            coords["start_y"] = getattr(evt, 'local_y', getattr(evt, 'y', 100))
+            
+            rect_container.left = coords["start_x"]
+            rect_container.top = coords["start_y"]
             rect_container.width = 0
             rect_container.height = 0
             rect_container.visible = True
             rect_container.update()
 
         def on_pan_update(evt: ft.DragUpdateEvent):
-            current_x, current_y = evt.local_x, evt.local_y
-            
-            # Width සහ Height ගණනය කිරීම (Negative values හැසිරවීම)
-            w = current_x - start_x
-            h = current_y - start_y
-            
-            if w < 0:
-                rect_container.left = start_x + w
-                rect_container.width = abs(w)
-            else:
-                rect_container.width = w
+            dx = getattr(evt, 'delta_x', getattr(evt, 'dx', 0))
+            dy = getattr(evt, 'delta_y', getattr(evt, 'dy', 0))
+            if dx is None: dx = 5
+            if dy is None: dy = 5
 
-            if h < 0:
-                rect_container.top = start_y + h
-                rect_container.height = abs(h)
-            else:
-                rect_container.height = h
-                
+            new_w = (rect_container.width or 0) + dx
+            new_h = (rect_container.height or 0) + dy
+
+            if new_w >= 0:
+                rect_container.width = new_w
+            if new_h >= 0:
+                rect_container.height = new_h
+
             rect_container.update()
 
         def on_pan_end(evt: ft.DragEndEvent):
@@ -129,25 +133,22 @@ def main(page: ft.Page):
                 "w": int(rect_container.width or 100),
                 "h": int(rect_container.height or 100)
             }
-            # Area select වූ පසු overlay එක ඉවත් කිරීම
-            if area_overlay in page.overlay:
-                page.overlay.remove(area_overlay)
+            if area_overlay in page.views:
+                page.views.remove(area_overlay)
             page.update()
             
-            # Temporary file ඉවත් කිරීම
             if os.path.exists(screenshot_path):
                 try:
                     os.remove(screenshot_path)
                 except:
                     pass
 
-        # Mouse drag අල්ලා ගැනීමට GestureDetector භාවිතය
         gesture_detector = ft.GestureDetector(
             content=ft.Stack([
-                ft.Image(src=screenshot_path, fit=ft.ImageFit.FILL, expand=True),
-                ft.Container(bgcolor=ft.Colors.with_opacity(0.4, ft.Colors.BLACK), expand=True), # Dim effect එක සඳහා
+                ft.Image(src=screenshot_path, fit="fill", expand=True),
+                ft.Container(bgcolor=ft.Colors.with_opacity(0.4, ft.Colors.BLACK), expand=True),
                 rect_container
-            ]),
+            ], expand=True),
             expand=True,
             on_pan_start=on_pan_start,
             on_pan_update=on_pan_update,
@@ -164,25 +165,36 @@ def main(page: ft.Page):
         page.views.append(area_overlay)
         page.update()
 
-    # Settings Dialog Window Function (Advanced Dropdowns සමඟ)
-    def open_settings_dialog(e):
-        displays = get_connected_displays()
-        
-        display_dropdown = ft.Dropdown(
-            value=displays[0] if displays else None,
-            options=[ft.dropdown.Option(text=disp) for disp in displays],
-            bgcolor=CARD_BG,
-            border_color=BORDER_COLOR,
-            color="white",
-            text_size=12,
-            border_radius=8,
-            filled=True,
-            content_padding=10,
-            focused_border_color="#6C5CE7",
-        )
+    # Coming Soon Dialog එක විවෘත කිරීම
+    def open_coming_soon_dialog(e):
+        def close_dlg(evt):
+            coming_soon_dialog.open = False
+            page.update()
 
-        # Advanced Dropdowns for Include features
-        # Advanced Dropdowns for Include features (on_change ඉවත් කර ඇත)
+        coming_soon_dialog = ft.AlertDialog(
+            title=ft.Row(
+                controls=[
+                    ft.Icon(ft.Icons.AUTO_AWESOME, color="#6C5CE7", size=20),
+                    ft.Text("Coming Soon!", size=14, color="white", weight=ft.FontWeight.BOLD)
+                ],
+                spacing=8
+            ),
+            content=ft.Text(
+                "Area recording feature is under development and will be available soon!",
+                size=12,
+                color=TEXT_MUTED
+            ),
+            actions=[
+                ft.TextButton("OK", on_click=close_dlg)
+            ],
+            bgcolor=BG_COLOR,
+        )
+        page.overlay.append(coming_soon_dialog)
+        coming_soon_dialog.open = True
+        page.update()
+
+    # Settings Dialog Window Function
+    def open_settings_dialog(e):
         audio_dropdown = ft.Dropdown(
             value=advanced_settings["Audio Source"],
             options=[
@@ -213,25 +225,52 @@ def main(page: ft.Page):
             bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
         )
 
+        quality_dropdown = ft.Dropdown(
+            value=advanced_settings.get("Quality", "1080p 60FPS"),
+            options=[
+                ft.dropdown.Option("1080p 60FPS"),
+                ft.dropdown.Option("1080p 30FPS"),
+                ft.dropdown.Option("720p 60FPS"),
+                ft.dropdown.Option("4K 60FPS")
+            ],
+            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
+        )
+
+        def save_settings(evt):
+            advanced_settings["Audio Source"] = audio_dropdown.value
+            advanced_settings["Microphone"] = mic_dropdown.value
+            advanced_settings["Webcam Source"] = webcam_dropdown.value
+            advanced_settings["Quality"] = quality_dropdown.value
+            settings_dialog.open = False
+            page.update()
+
         settings_dialog = ft.AlertDialog(
-            title=ft.Text("Advanced Settings", size=14, color="white", weight=ft.FontWeight.BOLD),
-            content=ft.Container(
-                content=ft.Column([
-                    ft.Text("Select Target Display", size=11, color=TEXT_MUTED, weight=ft.FontWeight.BOLD),
-                    display_dropdown,
-                    ft.Divider(height=10, color=BORDER_COLOR),
-                    ft.Text("Advanced Audio Source", size=11, color=TEXT_MUTED, weight=ft.FontWeight.BOLD),
+            title=ft.Text("Advanced Settings", color="white", weight=ft.FontWeight.BOLD, size=16),
+            content=ft.Column(
+                controls=[
+                    ft.Text("Audio Source", color=TEXT_MUTED, size=11),
                     audio_dropdown,
-                    ft.Text("Microphone Device", size=11, color=TEXT_MUTED, weight=ft.FontWeight.BOLD),
+                    ft.Container(height=5),
+                    ft.Text("Microphone", color=TEXT_MUTED, size=11),
                     mic_dropdown,
-                    ft.Text("Webcam Device", size=11, color=TEXT_MUTED, weight=ft.FontWeight.BOLD),
+                    ft.Container(height=5),
+                    ft.Text("Webcam Source", color=TEXT_MUTED, size=11),
                     webcam_dropdown,
-                ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO),
-                width=340,
-                height=350,
+                    ft.Container(height=5),
+                    ft.Text("Recording Quality", color=TEXT_MUTED, size=11),
+                    quality_dropdown,
+                ],
+                tight=True,
+                spacing=8,
+                width=300,
             ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda _: setattr(settings_dialog, 'open', False) or page.update()),
+                ft.FilledButton("Save", on_click=save_settings, bgcolor="#6C5CE7", color="white"),
+            ],
             bgcolor=BG_COLOR,
         )
+        
         page.overlay.append(settings_dialog)
         settings_dialog.open = True
         page.update()
@@ -285,7 +324,6 @@ def main(page: ft.Page):
     def update_ui():
         content_column.controls.clear()
 
-        # Main screen එකේ Include buttons සඳහා action එක සකස් කිරීම
         def toggle_include_option(label):
             include_states[label] = not include_states[label]
             update_ui()
@@ -302,13 +340,12 @@ def main(page: ft.Page):
         if current_mode == "Window":
             controls_list.append(get_window_picker_ui(selected_window_title, open_window_picker_dialog))
 
-        # ප්‍රධාන තිරයේ පරණ පරිදිම Include buttons පෙන්වීම
+        # Include බටන් සහ පහළ කොටස (Record controls & footer) හරියටම පහළටම තල්ලු කිරීමට ft.Container(expand=True) යොදා ඇත
         controls_list.extend([
             section_title("INCLUDE"),
             inc1,
             inc2,
-            section_title("QUALITY"),
-            get_quality_options(),
+            ft.Container(expand=True),  
             get_record_controls(),
             ft.Divider(height=1, color=BORDER_COLOR),
             get_footer(),

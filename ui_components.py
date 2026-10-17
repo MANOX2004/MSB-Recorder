@@ -220,18 +220,21 @@ def get_include_options(include_states=None, on_toggle=None):
                 ],
                 tight=True,
                 spacing=5,
+                alignment=ft.MainAxisAlignment.CENTER,
             ),
             bgcolor=bg_col,
             border=card_border(b_color),
             border_radius=16,
             padding=8,
+            expand=True,
+            alignment=ft.alignment.Alignment(0, 0),  # <-- මෙතැන ft.alignment.center වෙනුවට Alignment(0, 0) යොදන ලදී
             on_click=on_click_action,
             ink=True,
         )
     
     row1 = ft.Row(
         controls=[
-            chip_option(ft.Icons.VOLUME_UP_ROUNDED, "System audio"),
+            chip_icon := chip_option(ft.Icons.VOLUME_UP_ROUNDED, "System audio") if False else chip_option(ft.Icons.VOLUME_UP_ROUNDED, "System audio"),
             chip_option(ft.Icons.MIC_ROUNDED, "Mic"),
             chip_option(ft.Icons.CAMERA_ALT_ROUNDED, "Webcam"),
         ],
@@ -246,37 +249,6 @@ def get_include_options(include_states=None, on_toggle=None):
         spacing=6,
     )
     return row1, row2
-
-def get_quality_options():
-    def quality_option(title, sub1, sub2="", is_selected=False):
-        b_color = "#6C5CE7" if is_selected else BORDER_COLOR
-        return ft.Container(
-            content=ft.Column(
-                controls=[
-                    ft.Text(title, color="white", size=12, weight=ft.FontWeight.BOLD),
-                    ft.Text(sub1, color="white", size=11),
-                    ft.Text(sub2, color="white", size=11) if sub2 else ft.Container(),
-                ],
-                alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=1,
-            ),
-            bgcolor=CARD_BG,
-            border=card_border(b_color),
-            border_radius=8,
-            padding=6,
-            expand=True,
-            height=70,
-        )
-    return ft.Row(
-        controls=[
-            quality_option("Light", "720p", "30"),
-            quality_option("Standard", "1080p 30", is_selected=True),
-            quality_option("Smooth", "1080p", "60"),
-            quality_option("Ultra", "4K 60"),
-        ],
-        spacing=6,
-    )
 
 def get_record_controls():
     record_button = ft.Container(
