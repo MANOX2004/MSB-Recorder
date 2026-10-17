@@ -1,4 +1,6 @@
 import flet as ft
+import subprocess
+from logic import start_screen_recording, stop_screen_recording
 from ui_components import (
     BG_COLOR, BORDER_COLOR, CARD_BG, TEXT_MUTED, card_border,
     create_title_bar, create_header, section_title,
@@ -23,8 +25,13 @@ def main(page: ft.Page):
     # State Variables
     current_mode = "Screen"
     selected_window_title = "None"
+    is_recording = False
     selected_area = {"x": 0, "y": 0, "w": 0, "h": 0} # Area coordinates
-    
+
+    import os
+    videos_dir = os.path.join(os.path.expanduser("~"), "Videos")
+    default_save_path = os.path.join(videos_dir, "MSB Recordings")
+
     # Include Options State (Main screen buttons සඳහා)
     include_states = {
         "System audio": True,
@@ -40,7 +47,9 @@ def main(page: ft.Page):
         "Audio Source": "Default System Audio",
         "Microphone": "None",
         "Webcam Source": "HD Camera",
-        "Cursor Highlight": "Enabled"
+        "Quality": "1080p 60FPS",
+        "Cursor Highlight": "Enabled",
+        "Save Path": default_save_path
     }
 
     # මෙතැන expand=True සහ SPACE_BETWEEN මඟින් මුළු ඉඩ හරියටම බෙදා හරිනු ලැබේ
@@ -49,6 +58,23 @@ def main(page: ft.Page):
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         expand=True
     )
+
+    # Record button එක ක්ලික් කළ විට රෙකෝඩින් ආරම්භ වීම / නැවතීම
+    def toggle_recording(e):
+        nonlocal is_recording
+        if not is_recording:
+            is_recording = True
+            save_loc = advanced_settings.get("Save Path", default_save_path)
+            # Mode එක සහ Window Title එක Logic එකට යැවීම
+            start_screen_recording(
+                custom_save_path=save_loc, 
+                record_mode=current_mode, 
+                window_title=selected_window_title
+            )
+        else:
+            is_recording = False
+            stop_screen_recording()
+        update_ui()
 
     def minimize_window(e):
         page.window.minimized = True
@@ -338,7 +364,7 @@ def main(page: ft.Page):
             inc1,
             inc2,
             ft.Container(expand=True),  
-            get_record_controls(),
+            get_record_controls(is_recording=is_recording, on_record_click=toggle_recording),
             ft.Divider(height=1, color=BORDER_COLOR),
             get_footer(),
         ])
