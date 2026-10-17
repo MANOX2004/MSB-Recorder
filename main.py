@@ -65,11 +65,13 @@ def main(page: ft.Page):
         if not is_recording:
             is_recording = True
             save_loc = advanced_settings.get("Save Path", default_save_path)
-            # Mode එක සහ Window Title එක Logic එකට යැවීම
+            selected_quality = advanced_settings.get("Quality", "1080p 60FPS")
+            
             start_screen_recording(
                 custom_save_path=save_loc, 
                 record_mode=current_mode, 
-                window_title=selected_window_title
+                window_title=selected_window_title,
+                quality=selected_quality
             )
         else:
             is_recording = False

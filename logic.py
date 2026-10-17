@@ -49,8 +49,8 @@ def get_all_open_windows():
     return sorted(list(set(windows_list)))
 
 
-def _record_screen_worker(save_dir, record_mode="Screen", window_title=None, fps=20.0):
-    """පසුබිමෙන් (Thread) Screen එක හෝ නිශ්චිත Window එක පමණක් Capture කරන Function එක"""
+def _record_screen_worker(save_dir, record_mode="Screen", window_title=None, quality="1080p 60FPS"):
+    """Quality සහ FPS සැකසුම් සමඟ Screen හෝ Window එක පසුබිමින් Capture කිරීම"""
     global _is_recording_flag
 
     if not os.path.exists(save_dir):
@@ -59,60 +59,88 @@ def _record_screen_worker(save_dir, record_mode="Screen", window_title=None, fps
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     file_path = os.path.join(save_dir, f"MSB_REC_{timestamp}.mp4")
 
-    with mss.mss() as sct:
-        monitor = sct.monitors[1]
-        width, height = monitor["width"], monitor["height"]
-        region = None
+    # Settings වලට අනුව FPS සහ Resolution තීරණය කිරීම
+    fps = 60.0
+    if "30FPS" in quality:
+        fps = 30.0
 
-        # Window Mode නම් අදාළ Window එකේ Coordinates ලබා ගැනීම
-        if record_mode == "Window" and window_title and window_title != "None":
-            try:
-                import win32gui
-                hwnd = win32gui.FindWindow(None, window_title)
-                if hwnd:
-                    rect = win32gui.GetWindowRect(hwnd)
-                    x, y, x2, y2 = rect
-                    w = x2 - x
-                    h = y2 - y
-                    if w > 0 and h > 0:
-                        region = {"left": x, "top": y, "width": w, "height": h}
-                        width, height = w, h
-            except Exception as e:
-                print(f"Window capture error: {e}")
+    # 1. Screen Mode සඳහා
+    if record_mode == "Screen" or not window_title or window_title == "None":
+        with mss.mss() as sct:
+            monitor = sct.monitors[1]
+            width, height = monitor["width"], monitor["height"]
+            
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            out = cv2.VideoWriter(file_path, fourcc, fps, (width, height))
 
-        # Region එකක් සොයා ගැනීමට නොහැකි වුවහොත් මුළු Screen එකම ලබා ගැනීම
-        if not region:
-            region = monitor
+            while _is_recording_flag:
+                start_time = time.time()
+                img = np.array(sct.grab(monitor))
+                frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                out.write(frame)
+
+                elapsed = time.time() - start_time
+                delay = max(0, (1.0 / fps) - elapsed)
+                time.sleep(delay)
+            out.release()
+
+    # 2. Window Mode සඳහා
+    else:
+        import win32gui
+        import win32ui
+        import ctypes
+
+        hwnd = win32gui.FindWindow(None, window_title)
+        if not hwnd:
+            return
+
+        rect = win32gui.GetWindowRect(hwnd)
+        width = rect[2] - rect[0]
+        height = rect[3] - rect[1]
+
+        if width <= 0 or height <= 0:
+            width, height = 800, 600
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         out = cv2.VideoWriter(file_path, fourcc, fps, (width, height))
 
         while _is_recording_flag:
             start_time = time.time()
-
-            # Window එක Minimize කර ඇත්නම් හෝ මකා දමා ඇත්නම් error එකක් ඒම වැළැක්වීම
             try:
-                if record_mode == "Window" and window_title and window_title != "None":
-                    import win32gui
-                    hwnd = win32gui.FindWindow(None, window_title)
-                    if hwnd:
-                        rect = win32gui.GetWindowRect(hwnd)
-                        x, y, x2, y2 = rect
-                        w, h = x2 - x, y2 - y
-                        if w > 0 and h > 0:
-                            region = {"left": x, "top": y, "width": w, "height": h}
-            except:
-                pass
+                hwnd = win32gui.FindWindow(None, window_title)
+                if hwnd and win32gui.IsWindow(hwnd):
+                    rect = win32gui.GetWindowRect(hwnd)
+                    w = rect[2] - rect[0]
+                    h = rect[3] - rect[1]
 
-            # Screen/Window Capture
-            img = np.array(sct.grab(region))
-            frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            
-            # Window එකේ සයිස් එක වෙනස් වුවහොත් VideoWriter එකට ගැලපෙන සේ Resize කිරීම
-            if frame.shape[1] != width or frame.shape[0] != height:
-                frame = cv2.resize(frame, (width, height))
+                    if w > 0 and h > 0:
+                        hwndDC = win32gui.GetWindowDC(hwnd)
+                        mfcDC = win32ui.CreateDCFromHandle(hwndDC)
+                        saveDC = mfcDC.CreateCompatibleDC()
 
-            out.write(frame)
+                        saveBitMap = win32ui.CreateBitmap()
+                        saveBitMap.CreateCompatibleBitmap(mfcDC, w, h)
+                        saveDC.SelectObject(saveBitMap)
+
+                        ctypes.windll.user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 2)
+
+                        bmpstr = saveBitMap.GetBitmapBits(True)
+                        img = np.frombuffer(bmpstr, dtype=np.uint8)
+                        img.shape = (h, w, 4)
+
+                        frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+                        if w != width or h != height:
+                            frame = cv2.resize(frame, (width, height))
+
+                        out.write(frame)
+
+                        win32gui.DeleteObject(saveBitMap.GetHandle())
+                        saveDC.DeleteDC()
+                        mfcDC.DeleteDC()
+                        win32gui.ReleaseDC(hwnd, hwndDC)
+            except Exception as e:
+                print(f"PrintWindow Error: {e}")
 
             elapsed = time.time() - start_time
             delay = max(0, (1.0 / fps) - elapsed)
@@ -121,8 +149,7 @@ def _record_screen_worker(save_dir, record_mode="Screen", window_title=None, fps
         out.release()
 
 
-def start_screen_recording(custom_save_path=None, record_mode="Screen", window_title=None):
-    """Screen Recording එක ආරම්භ කිරීම"""
+def start_screen_recording(custom_save_path=None, record_mode="Screen", window_title=None, quality="1080p 60FPS"):
     global _is_recording_flag, _recording_thread
 
     if _is_recording_flag:
@@ -137,11 +164,10 @@ def start_screen_recording(custom_save_path=None, record_mode="Screen", window_t
     _is_recording_flag = True
     _recording_thread = threading.Thread(
         target=_record_screen_worker, 
-        args=(custom_save_path, record_mode, window_title), 
+        args=(custom_save_path, record_mode, window_title, quality), 
         daemon=True
     )
     _recording_thread.start()
-
 
 def stop_screen_recording():
     """Screen Recording එක නතර කිරීම"""
