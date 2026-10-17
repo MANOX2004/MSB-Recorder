@@ -23,6 +23,7 @@ def main(page: ft.Page):
     # State Variables
     current_mode = "Screen"
     selected_window_title = "None"
+    selected_area = {"x": 0, "y": 0, "w": 0, "h": 0} # Area coordinates
     
     # Include Options State (Main screen buttons සඳහා)
     include_states = {
@@ -54,6 +55,8 @@ def main(page: ft.Page):
     def on_mode_change(mode):
         nonlocal current_mode
         current_mode = mode
+        if mode == "Area":
+            open_area_selector(None)
         update_ui()
 
     # Night Mode / Light Mode Toggle Function
@@ -62,6 +65,103 @@ def main(page: ft.Page):
             page.theme_mode = ft.ThemeMode.LIGHT
         else:
             page.theme_mode = ft.ThemeMode.DARK
+        page.update()
+
+    # Snipping Tool වැනි Area Selector එක විවෘත කිරීම
+    def open_area_selector(e):
+        import os
+        import pyautogui
+        
+        # 1. Screen එකේ තාවකාලික screenshot එකක් ගැනීම
+        screenshot_path = "temp_screenshot.png"
+        screenshot = pyautogui.screenshot()
+        screenshot.save(screenshot_path)
+
+        # Selected area values
+        start_x, start_y = 0, 0
+        rect_container = ft.Container(
+            bgcolor=ft.Colors.with_opacity(0.3, "#6C5CE7"),
+            border=ft.Border(
+                top=ft.BorderSide(2, "#6C5CE7"),
+                bottom=ft.BorderSide(2, "#6C5CE7"),
+                left=ft.BorderSide(2, "#6C5CE7"),
+                right=ft.BorderSide(2, "#6C5CE7"),
+            ),
+            visible=False
+        )
+
+        def on_pan_start(evt: ft.DragStartEvent):
+            nonlocal start_x, start_y
+            start_x, start_y = evt.local_x, evt.local_y
+            rect_container.left = start_x
+            rect_container.top = start_y
+            rect_container.width = 0
+            rect_container.height = 0
+            rect_container.visible = True
+            rect_container.update()
+
+        def on_pan_update(evt: ft.DragUpdateEvent):
+            current_x, current_y = evt.local_x, evt.local_y
+            
+            # Width සහ Height ගණනය කිරීම (Negative values හැසිරවීම)
+            w = current_x - start_x
+            h = current_y - start_y
+            
+            if w < 0:
+                rect_container.left = start_x + w
+                rect_container.width = abs(w)
+            else:
+                rect_container.width = w
+
+            if h < 0:
+                rect_container.top = start_y + h
+                rect_container.height = abs(h)
+            else:
+                rect_container.height = h
+                
+            rect_container.update()
+
+        def on_pan_end(evt: ft.DragEndEvent):
+            nonlocal selected_area
+            selected_area = {
+                "x": int(rect_container.left or 0),
+                "y": int(rect_container.top or 0),
+                "w": int(rect_container.width or 100),
+                "h": int(rect_container.height or 100)
+            }
+            # Area select වූ පසු overlay එක ඉවත් කිරීම
+            if area_overlay in page.overlay:
+                page.overlay.remove(area_overlay)
+            page.update()
+            
+            # Temporary file ඉවත් කිරීම
+            if os.path.exists(screenshot_path):
+                try:
+                    os.remove(screenshot_path)
+                except:
+                    pass
+
+        # Mouse drag අල්ලා ගැනීමට GestureDetector භාවිතය
+        gesture_detector = ft.GestureDetector(
+            content=ft.Stack([
+                ft.Image(src=screenshot_path, fit=ft.ImageFit.FILL, expand=True),
+                ft.Container(bgcolor=ft.Colors.with_opacity(0.4, ft.Colors.BLACK), expand=True), # Dim effect එක සඳහා
+                rect_container
+            ]),
+            expand=True,
+            on_pan_start=on_pan_start,
+            on_pan_update=on_pan_update,
+            on_pan_end=on_pan_end,
+        )
+
+        area_overlay = ft.View(
+            route="/snipping",
+            controls=[gesture_detector],
+            padding=0,
+            bgcolor=ft.Colors.TRANSPARENT
+        )
+
+        page.views.append(area_overlay)
         page.update()
 
     # Settings Dialog Window Function (Advanced Dropdowns සමඟ)
