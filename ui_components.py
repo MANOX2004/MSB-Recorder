@@ -59,7 +59,7 @@ def create_title_bar(page, on_minimize, on_close):
         )
     )
 
-def create_header():
+def create_header(on_theme_toggle=None, on_settings_click=None):
     return ft.Row(
         controls=[
             ft.Text("MSB Recorder Studio", size=16, weight=ft.FontWeight.BOLD, color="white"),
@@ -71,6 +71,8 @@ def create_header():
                         icon_color="white",
                         bgcolor=CARD_BG,
                         style=ft.ButtonStyle(shape=ft.CircleBorder()),
+                        on_click=on_theme_toggle,
+                        tooltip="Toggle Theme",
                     ),
                     ft.IconButton(
                         icon=ft.Icons.SETTINGS_OUTLINED,
@@ -78,6 +80,8 @@ def create_header():
                         icon_color="white",
                         bgcolor=CARD_BG,
                         style=ft.ButtonStyle(shape=ft.CircleBorder()),
+                        on_click=on_settings_click,
+                        tooltip="Settings",
                     ),
                 ],
                 spacing=6,

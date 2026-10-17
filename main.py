@@ -6,7 +6,7 @@ from ui_components import (
     get_include_options, get_quality_options,
     get_record_controls, get_footer
 )
-from logic import get_all_open_windows
+from logic import get_all_open_windows, get_connected_displays
 
 def main(page: ft.Page):
     # Window Settings
@@ -21,7 +21,7 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.DARK
 
     # State Variables
-    current_mode = "Screens"
+    current_mode = "Screen"
     selected_window_title = "None"
     content_column = ft.Column(spacing=8)
 
@@ -37,7 +37,65 @@ def main(page: ft.Page):
         current_mode = mode
         update_ui()
 
-    # Window Picker Dialog (ස්ථාවර Overlay ක්‍රමය)
+    # 1. Night Mode / Light Mode Toggle Function
+    def toggle_theme(e):
+        if page.theme_mode == ft.ThemeMode.DARK:
+            page.theme_mode = ft.ThemeMode.LIGHT
+        else:
+            page.theme_mode = ft.ThemeMode.DARK
+        page.update()
+
+    # 2. Settings Dialog Window Function
+    # 2. Settings Dialog Window Function
+    # 2. Settings Dialog Window Function (Display Dropdown එක සමඟ)
+    def open_settings_dialog(e):
+        from logic import get_connected_displays
+        
+        displays = get_connected_displays()
+        dropdown_options = [
+            ft.dropdown.Option(text=disp) for disp in displays
+        ]
+
+        display_dropdown = ft.Dropdown(
+            value=displays[0] if displays else None,
+            options=dropdown_options,
+            bgcolor=CARD_BG,
+            border_color=BORDER_COLOR,
+            color="white",
+            text_size=12,
+            border_radius=8,
+            filled=True,
+            content_padding=10,
+            focused_border_color="#6C5CE7",
+        )
+
+        settings_dialog = ft.AlertDialog(
+            title=ft.Text("Settings & Displays", size=14, color="white", weight=ft.FontWeight.BOLD),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text("Select Target Display", size=11, color=TEXT_MUTED),
+                    display_dropdown,
+                    ft.Divider(height=10, color=BORDER_COLOR),
+                    ft.Text("Recorder Preferences", size=11, color=TEXT_MUTED),
+                    ft.Row([
+                        ft.Text("Save logs automatically", color="white", size=12),
+                        ft.Switch(value=True),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    ft.Row([
+                        ft.Text("Hardware Acceleration", color="white", size=12),
+                        ft.Switch(value=True),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ], tight=True, spacing=10),
+                width=320,
+                height=240,
+            ),
+            bgcolor=BG_COLOR,
+        )
+        page.overlay.append(settings_dialog)
+        settings_dialog.open = True
+        page.update()
+
+    # Window Picker Dialog
     def open_window_picker_dialog(e):
         open_windows = get_all_open_windows()
 
@@ -49,8 +107,6 @@ def main(page: ft.Page):
             update_ui()
 
         window_listView = ft.ListView(expand=1, spacing=6, padding=5)
-        
-        # තාවකාලික Dialog reference එකක් සඳහා variable එකක්
         dialog_ref = [None]
 
         for win in open_windows:
@@ -96,7 +152,7 @@ def main(page: ft.Page):
 
         controls_list = [
             create_title_bar(page, minimize_window, close_window),
-            create_header(),
+            create_header(on_theme_toggle=toggle_theme, on_settings_click=open_settings_dialog),
             section_title("WHAT TO RECORD"),
             get_what_to_record(selected_mode=current_mode, on_select=on_mode_change),
         ]
@@ -104,8 +160,8 @@ def main(page: ft.Page):
         if current_mode == "Window":
             controls_list.append(get_window_picker_ui(selected_window_title, open_window_picker_dialog))
 
+        # මෙහි තිබූ get_display_dropdown() ඉවත් කර ඇත (දැන් එය settings window එක ඇතුළේ ඇත)
         controls_list.extend([
-            get_display_dropdown(),
             section_title("INCLUDE"),
             inc1,
             inc2,
