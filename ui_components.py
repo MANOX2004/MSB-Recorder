@@ -1,4 +1,5 @@
 import flet as ft
+from logic import get_connected_displays
 
 # Color Constants
 BG_COLOR = "#12131C"
@@ -167,18 +168,24 @@ def get_window_picker_ui(selected_window_title, on_pick_click):
     )
 
 def get_display_dropdown():
-    return ft.Container(
-        content=ft.Row(
-            controls=[
-                ft.Text("Display 1 · 1920 x 1080", color="white", size=12),
-                ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED, color="white", size=16),
-            ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-        ),
+    """ಸම්බන්ධ කර ඇති සැබෑ ඩිස්ප්ලේස් පෙන්වන Flet Dropdown මෙනුව"""
+    displays = get_connected_displays()
+    
+    dropdown_options = [
+        ft.dropdown.Option(text=disp) for disp in displays
+    ]
+
+    return ft.Dropdown(
+        value=displays[0] if displays else None,
+        options=dropdown_options,
         bgcolor=CARD_BG,
-        border=card_border(BORDER_COLOR),
+        border_color=BORDER_COLOR,
+        color="white",
+        text_size=12,
         border_radius=8,
-        padding=10,
+        filled=True,
+        content_padding=10,
+        focused_border_color="#6C5CE7",
     )
 
 def get_include_options():
