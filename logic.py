@@ -5,6 +5,8 @@ import datetime
 import numpy as np
 import cv2
 import mss
+import subprocess
+import imageio_ffmpeg
 
 # Global Recording Control Flags
 _is_recording_flag = False
@@ -50,7 +52,7 @@ def get_all_open_windows():
 
 
 def _record_screen_worker(save_dir, record_mode="Screen", window_title=None, quality="1080p 60FPS"):
-    """Quality සහ FPS සැකසුම් සමඟ Screen හෝ Window එක පසුබිමින් Capture කිරීම"""
+    """FFmpeg සහ CRF මඟින් උපරිම ගුණාත්මකභාවයෙන් (Ultra High Quality) Screen හෝ Window එක කැප්චර් කිරීම"""
     global _is_recording_flag
 
     if not os.path.exists(save_dir):
@@ -59,32 +61,52 @@ def _record_screen_worker(save_dir, record_mode="Screen", window_title=None, qua
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     file_path = os.path.join(save_dir, f"MSB_REC_{timestamp}.mp4")
 
-    # Settings වලට අනුව FPS සහ Resolution තීරණය කිරීම
     fps = 60.0
     if "30FPS" in quality:
         fps = 30.0
 
-    # 1. Screen Mode සඳහා
+    # 1. Screen Mode සඳහා Width සහ Height ලබා ගැනීම
     if record_mode == "Screen" or not window_title or window_title == "None":
         with mss.mss() as sct:
             monitor = sct.monitors[1]
             width, height = monitor["width"], monitor["height"]
             
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            out = cv2.VideoWriter(file_path, fourcc, fps, (width, height))
+            # FFmpeg Command එක සැකසීම (CRF 12 යනු ඉතාම පැහැදිලි උසස් තත්ත්වයකි)
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            cmd = [
+                ffmpeg_exe,
+                '-y',
+                '-f', 'rawvideo',
+                '-vcodec', 'rawvideo',
+                '-s', f'{width}x{height}',
+                '-pix_fmt', 'bgr24',
+                '-r', str(fps),
+                '-i', '-',
+                '-c:v', 'libx264',
+                '-crf', '12',          # අකුරු සහ රූප ඉතාම තියුණු ලෙස තබා ගැනීමට (0 = Lossless, 12 = Ultra High)
+                '-preset', 'ultrafast', # රෙකෝඩ් වන විට ලැග් වීම (Lag) වැළැක්වීමට
+                '-pix_fmt', 'yuv420p',
+                file_path
+            ]
+            
+            pipe = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
             while _is_recording_flag:
                 start_time = time.time()
                 img = np.array(sct.grab(monitor))
                 frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-                out.write(frame)
+                
+                # FFmpeg වෙත Frame එක යැවීම
+                pipe.stdin.write(frame.tobytes())
 
                 elapsed = time.time() - start_time
                 delay = max(0, (1.0 / fps) - elapsed)
                 time.sleep(delay)
-            out.release()
+                
+            pipe.stdin.close()
+            pipe.wait()
 
-    # 2. Window Mode සඳහා
+    # 2. Window Mode සඳහා (PrintWindow හරහා පසුබිමින් කැප්චර් කිරීම)
     else:
         import win32gui
         import win32ui
@@ -101,8 +123,24 @@ def _record_screen_worker(save_dir, record_mode="Screen", window_title=None, qua
         if width <= 0 or height <= 0:
             width, height = 800, 600
 
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out = cv2.VideoWriter(file_path, fourcc, fps, (width, height))
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        cmd = [
+            ffmpeg_exe,
+            '-y',
+            '-f', 'rawvideo',
+            '-vcodec', 'rawvideo',
+            '-s', f'{width}x{height}',
+            '-pix_fmt', 'bgr24',
+            '-r', str(fps),
+            '-i', '-',
+            '-c:v', 'libx264',
+            '-crf', '12',
+            '-preset', 'ultrafast',
+            '-pix_fmt', 'yuv420p',
+            file_path
+        ]
+        
+        pipe = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
         while _is_recording_flag:
             start_time = time.time()
@@ -131,9 +169,10 @@ def _record_screen_worker(save_dir, record_mode="Screen", window_title=None, qua
                         frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
                         if w != width or h != height:
-                            frame = cv2.resize(frame, (width, height))
+                            frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_CUBIC)
 
-                        out.write(frame)
+                        # FFmpeg වෙත Frame එක යැවීම
+                        pipe.stdin.write(frame.tobytes())
 
                         win32gui.DeleteObject(saveBitMap.GetHandle())
                         saveDC.DeleteDC()
@@ -146,7 +185,8 @@ def _record_screen_worker(save_dir, record_mode="Screen", window_title=None, qua
             delay = max(0, (1.0 / fps) - elapsed)
             time.sleep(delay)
 
-        out.release()
+        pipe.stdin.close()
+        pipe.wait()
 
 
 def start_screen_recording(custom_save_path=None, record_mode="Screen", window_title=None, quality="1080p 60FPS"):
