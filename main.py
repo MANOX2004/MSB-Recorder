@@ -213,104 +213,267 @@ def main(page: ft.Page):
         coming_soon_dialog.open = True
         page.update()
 
-    # Settings Dialog Window Function
-    # Settings Dialog Window Function (Duplicate වීම වැළැක්වීමට සකස් කරන ලදී)
+    # Modern Studio Settings Modal Window Function
+    # Modern Studio Settings Modal Window Function (Fixed & Clean)
     def open_settings_dialog(e):
-        audio_dropdown = ft.Dropdown(
-            value=advanced_settings["Audio Source"],
+        # ---------------- Video Settings Controls ----------------
+        res_dropdown = ft.Dropdown(
+            value=advanced_settings.get("Resolution", "1920 x 1080 (Full HD)"),
             options=[
-                ft.dropdown.Option("Default System Audio"), 
-                ft.dropdown.Option("Speakers Only"), 
-                ft.dropdown.Option("Mute All")
+                ft.dropdown.Option("1920 x 1080 (Full HD)"),
+                ft.dropdown.Option("1280 x 720 (HD)"),
+                ft.dropdown.Option("3840 x 2160 (4K)"),
             ],
-            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
-            border_radius=8, content_padding=10, focused_border_color="#6C5CE7"
+            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=11, filled=True,
+            border_radius=8, content_padding=8, focused_border_color="#6C5CE7", expand=True
         )
 
-        mic_dropdown = ft.Dropdown(
-            value=advanced_settings["Microphone"],
+        fps_dropdown = ft.Dropdown(
+            value=advanced_settings.get("Frame Rate", "60 FPS"),
             options=[
-                ft.dropdown.Option("None"), 
-                ft.dropdown.Option("Default Microphone"), 
-                ft.dropdown.Option("External Mic")
+                ft.dropdown.Option("60 FPS"),
+                ft.dropdown.Option("30 FPS"),
             ],
-            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
-            border_radius=8, content_padding=10, focused_border_color="#6C5CE7"
-        )
-
-        webcam_dropdown = ft.Dropdown(
-            value=advanced_settings["Webcam Source"],
-            options=[
-                ft.dropdown.Option("HD Camera"), 
-                ft.dropdown.Option("OBS Virtual Camera"), 
-                ft.dropdown.Option("Disabled")
-            ],
-            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
-            border_radius=8, content_padding=10, focused_border_color="#6C5CE7"
+            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=11, filled=True,
+            border_radius=8, content_padding=8, focused_border_color="#6C5CE7", width=95
         )
 
         quality_dropdown = ft.Dropdown(
-            value=advanced_settings.get("Quality", "1080p 60FPS"),
+            value=advanced_settings.get("Quality", "High"),
             options=[
-                ft.dropdown.Option("1080p 60FPS"),
-                ft.dropdown.Option("1080p 30FPS"),
-                ft.dropdown.Option("720p 60FPS"),
-                ft.dropdown.Option("4K 60FPS")
+                ft.dropdown.Option("High"),
+                ft.dropdown.Option("Ultra Lossless"),
+                ft.dropdown.Option("Medium"),
             ],
-            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
-            border_radius=8, content_padding=10, focused_border_color="#6C5CE7"
+            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=11, filled=True,
+            border_radius=8, content_padding=8, focused_border_color="#6C5CE7", width=95
+        )
+
+        format_dropdown = ft.Dropdown(
+            value=advanced_settings.get("Output Format", "MP4 (Recommended)"),
+            options=[
+                ft.dropdown.Option("MP4 (Recommended)"),
+                ft.dropdown.Option("MKV"),
+                ft.dropdown.Option("AVI"),
+            ],
+            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=11, filled=True,
+            border_radius=8, content_padding=8, focused_border_color="#6C5CE7", expand=True
+        )
+
+        # ---------------- Audio Settings Controls ----------------
+        mic_dropdown = ft.Dropdown(
+            value=advanced_settings.get("Microphone", "Default Microphone"),
+            options=[
+                ft.dropdown.Option("Default Microphone"),
+                ft.dropdown.Option("External Mic"),
+                ft.dropdown.Option("None"),
+            ],
+            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=11, filled=True,
+            border_radius=8, content_padding=8, focused_border_color="#6C5CE7", expand=True
+        )
+        mic_switch = ft.Switch(value=advanced_settings.get("Mic Enabled", True), active_color="#3B82F6")
+
+        sys_audio_dropdown = ft.Dropdown(
+            value=advanced_settings.get("Audio Source", "Default Speakers"),
+            options=[
+                ft.dropdown.Option("Default Speakers"),
+                ft.dropdown.Option("Headphones"),
+                ft.dropdown.Option("Mute"),
+            ],
+            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=11, filled=True,
+            border_radius=8, content_padding=8, focused_border_color="#6C5CE7", expand=True
+        )
+        sys_audio_switch = ft.Switch(value=advanced_settings.get("SysAudio Enabled", True), active_color="#3B82F6")
+
+        mix_audio_switch = ft.Switch(value=advanced_settings.get("Mix Audio", True), active_color="#3B82F6")
+
+        # ---------------- Other Settings Controls (Tkinter Folder Picker) ----------------
+        save_path_input = ft.TextField(
+            value=advanced_settings.get("Save Path", default_save_path),
+            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=11,
+            border_radius=8, content_padding=10, focused_border_color="#6C5CE7", expand=True, read_only=True
+        )
+
+        def browse_folder(e):
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes('-topmost', True)
+            chosen_dir = filedialog.askdirectory(initialdir=save_path_input.value)
+            root.destroy()
+            if chosen_dir:
+                save_path_input.value = chosen_dir
+                save_path_input.update()
+
+        # Card Container Generator Function
+        def build_card(icon, title, subtitle, content_controls):
+            return ft.Container(
+                content=ft.Column(
+                    controls=[
+                        ft.Row(
+                            controls=[
+                                ft.Icon(icon, color="#3B82F6", size=18),
+                                ft.Column(
+                                    controls=[
+                                        ft.Text(title, size=13, weight=ft.FontWeight.BOLD, color="white"),
+                                        ft.Text(subtitle, size=10, color=TEXT_MUTED),
+                                    ],
+                                    spacing=1
+                                )
+                            ],
+                            spacing=8
+                        ),
+                        ft.Container(height=2),
+                        *content_controls
+                    ],
+                    spacing=8
+                ),
+                bgcolor="#161922",
+                border=card_border(BORDER_COLOR),
+                border_radius=10,
+                padding=12
+            )
+
+        # --- Section 1: Video Settings Card ---
+        video_card = build_card(
+            ft.Icons.VIDEOCAM_OUTLINED,
+            "Video Settings",
+            "Set the video quality and format.",
+            [
+                ft.Row(
+                    controls=[
+                        ft.Column([ft.Text("Resolution", size=10, color=TEXT_MUTED), res_dropdown], expand=True, spacing=2),
+                    ],
+                    spacing=6
+                ),
+                ft.Row(
+                    controls=[
+                        ft.Column([ft.Text("Frame Rate", size=10, color=TEXT_MUTED), fps_dropdown], spacing=2),
+                        ft.Column([ft.Text("Quality", size=10, color=TEXT_MUTED), quality_dropdown], spacing=2),
+                    ],
+                    spacing=6
+                ),
+                ft.Column([
+                    ft.Text("Output Format", size=10, color=TEXT_MUTED),
+                    format_dropdown
+                ], spacing=2)
+            ]
+        )
+
+        # --- Section 2: Audio Settings Card ---
+        audio_card = build_card(
+            ft.Icons.VOLUME_UP_OUTLINED,
+            "Audio Settings",
+            "Choose what audio to record.",
+            [
+                ft.Row(
+                    controls=[
+                        ft.Icon(ft.Icons.MIC_OUTLINED, color=TEXT_MUTED, size=16),
+                        ft.Text("Microphone", size=11, color="white", width=80),
+                        mic_dropdown,
+                        mic_switch
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=6
+                ),
+                ft.Row(
+                    controls=[
+                        ft.Icon(ft.Icons.VOLUME_UP_ROUNDED, color=TEXT_MUTED, size=16),
+                        ft.Text("System Audio", size=11, color="white", width=80),
+                        sys_audio_dropdown,
+                        sys_audio_switch
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=6
+                ),
+                ft.Row(
+                    controls=[
+                        ft.Icon(ft.Icons.TUNE, color=TEXT_MUTED, size=16),
+                        ft.Column([
+                            ft.Text("Mix audio", size=11, color="white", weight=ft.FontWeight.W_500),
+                            ft.Text("Record mic and system audio", size=9, color=TEXT_MUTED),
+                        ], expand=True, spacing=1),
+                        mix_audio_switch
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=6
+                )
+            ]
+        )
+
+        # --- Section 3: Other Settings Card ---
+        other_card = build_card(
+            ft.Icons.SETTINGS_OUTLINED,
+            "Other Settings",
+            "Additional options for a better experience.",
+            [
+                ft.Row(
+                    controls=[
+                        ft.Icon(ft.Icons.FOLDER_OUTLINED, color=TEXT_MUTED, size=16),
+                        ft.Text("Save location", size=11, color="white", width=80),
+                        save_path_input,
+                        ft.Container(
+                            content=ft.Text("Browse", size=11, color="white", weight=ft.FontWeight.W_500),
+                            bgcolor="#222736",
+                            padding=10,
+                            border_radius=6,
+                            on_click=browse_folder
+                        )
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=6
+                )
+            ]
         )
 
         def save_settings(evt):
-            advanced_settings["Audio Source"] = audio_dropdown.value
-            advanced_settings["Microphone"] = mic_dropdown.value
-            advanced_settings["Webcam Source"] = webcam_dropdown.value
+            advanced_settings["Resolution"] = res_dropdown.value
+            advanced_settings["Frame Rate"] = fps_dropdown.value
             advanced_settings["Quality"] = quality_dropdown.value
+            advanced_settings["Output Format"] = format_dropdown.value
+            advanced_settings["Microphone"] = mic_dropdown.value
+            advanced_settings["Mic Enabled"] = mic_switch.value
+            advanced_settings["Audio Source"] = sys_audio_dropdown.value
+            advanced_settings["SysAudio Enabled"] = sys_audio_switch.value
+            advanced_settings["Mix Audio"] = mix_audio_switch.value
+            advanced_settings["Save Path"] = save_path_input.value
+            
+            advanced_settings["Quality"] = f"{fps_dropdown.value}"
             settings_dialog.open = False
             page.update()
 
         settings_dialog = ft.AlertDialog(
-            title=ft.Row(
-                controls=[
-                    ft.Icon(ft.Icons.SETTINGS, color="#6C5CE7", size=18),
-                    ft.Text("Advanced Settings", color="white", weight=ft.FontWeight.BOLD, size=15),
-                ],
-                spacing=8
-            ),
             content=ft.Container(
                 content=ft.Column(
                     controls=[
-                        ft.Text("Audio Source", color=TEXT_MUTED, size=11, weight=ft.FontWeight.BOLD),
-                        audio_dropdown,
-                        ft.Container(height=4),
-                        ft.Text("Microphone", color=TEXT_MUTED, size=11, weight=ft.FontWeight.BOLD),
-                        mic_dropdown,
-                        ft.Container(height=4),
-                        ft.Text("Webcam Source", color=TEXT_MUTED, size=11, weight=ft.FontWeight.BOLD),
-                        webcam_dropdown,
-                        ft.Container(height=4),
-                        ft.Text("Recording Quality", color=TEXT_MUTED, size=11, weight=ft.FontWeight.BOLD),
-                        quality_dropdown,
+                        video_card,
+                        audio_card,
+                        other_card,
+                        ft.Row(
+                            controls=[
+                                ft.TextButton("Cancel", on_click=lambda _: setattr(settings_dialog, 'open', False) or page.update()),
+                                ft.FilledButton("Save Changes", on_click=save_settings, bgcolor="#3B82F6", color="white"),
+                            ],
+                            alignment=ft.MainAxisAlignment.END,
+                            spacing=10
+                        )
                     ],
+                    spacing=10,
                     tight=True,
-                    spacing=6,
+                    scroll=ft.ScrollMode.AUTO
                 ),
-                width=310,
+                width=460,
+                padding=5
             ),
-            actions=[
-                ft.TextButton("Cancel", on_click=lambda _: setattr(settings_dialog, 'open', False) or page.update()),
-                ft.FilledButton("Save Changes", on_click=save_settings, bgcolor="#6C5CE7", color="white"),
-            ],
             bgcolor=BG_COLOR,
             shape=ft.RoundedRectangleBorder(radius=12),
         )
-        
-        # කලින් තිබූ Settings Dialogs ඉවත් කිරීම
-        page.overlay[:] = [d for d in page.overlay if getattr(d, 'data', None) != "settings_data"]
-        
-        # අලුත් ඩයලොග් එකට identifier එකක් ලෙස data එකක් ලබා දීම
-        settings_dialog.data = "settings_data"
-        
+
+        # Duplicate overlays ඉවත් කිරීම
+        page.overlay[:] = [d for d in page.overlay if getattr(d, 'data', None) != "settings_dialog"]
+        settings_dialog.data = "settings_dialog"
+
         page.overlay.append(settings_dialog)
         settings_dialog.open = True
         page.update()
@@ -380,7 +543,6 @@ def main(page: ft.Page):
         if current_mode == "Window":
             controls_list.append(get_window_picker_ui(selected_window_title, open_window_picker_dialog))
 
-        # Include බටන් සහ පහළ කොටස (Record controls & footer) හරියටම පහළටම තල්ලු කිරීමට ft.Container(expand=True) යොදා ඇත
         controls_list.extend([
             section_title("INCLUDE"),
             inc1,
