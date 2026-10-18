@@ -214,6 +214,7 @@ def main(page: ft.Page):
         page.update()
 
     # Settings Dialog Window Function
+    # Settings Dialog Window Function (Duplicate වීම වැළැක්වීමට සකස් කරන ලදී)
     def open_settings_dialog(e):
         audio_dropdown = ft.Dropdown(
             value=advanced_settings["Audio Source"],
@@ -223,6 +224,7 @@ def main(page: ft.Page):
                 ft.dropdown.Option("Mute All")
             ],
             bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
+            border_radius=8, content_padding=10, focused_border_color="#6C5CE7"
         )
 
         mic_dropdown = ft.Dropdown(
@@ -233,6 +235,7 @@ def main(page: ft.Page):
                 ft.dropdown.Option("External Mic")
             ],
             bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
+            border_radius=8, content_padding=10, focused_border_color="#6C5CE7"
         )
 
         webcam_dropdown = ft.Dropdown(
@@ -243,6 +246,7 @@ def main(page: ft.Page):
                 ft.dropdown.Option("Disabled")
             ],
             bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
+            border_radius=8, content_padding=10, focused_border_color="#6C5CE7"
         )
 
         quality_dropdown = ft.Dropdown(
@@ -254,6 +258,7 @@ def main(page: ft.Page):
                 ft.dropdown.Option("4K 60FPS")
             ],
             bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=12, filled=True,
+            border_radius=8, content_padding=10, focused_border_color="#6C5CE7"
         )
 
         def save_settings(evt):
@@ -265,31 +270,46 @@ def main(page: ft.Page):
             page.update()
 
         settings_dialog = ft.AlertDialog(
-            title=ft.Text("Advanced Settings", color="white", weight=ft.FontWeight.BOLD, size=16),
-            content=ft.Column(
+            title=ft.Row(
                 controls=[
-                    ft.Text("Audio Source", color=TEXT_MUTED, size=11),
-                    audio_dropdown,
-                    ft.Container(height=5),
-                    ft.Text("Microphone", color=TEXT_MUTED, size=11),
-                    mic_dropdown,
-                    ft.Container(height=5),
-                    ft.Text("Webcam Source", color=TEXT_MUTED, size=11),
-                    webcam_dropdown,
-                    ft.Container(height=5),
-                    ft.Text("Recording Quality", color=TEXT_MUTED, size=11),
-                    quality_dropdown,
+                    ft.Icon(ft.Icons.SETTINGS, color="#6C5CE7", size=18),
+                    ft.Text("Advanced Settings", color="white", weight=ft.FontWeight.BOLD, size=15),
                 ],
-                tight=True,
-                spacing=8,
-                width=300,
+                spacing=8
+            ),
+            content=ft.Container(
+                content=ft.Column(
+                    controls=[
+                        ft.Text("Audio Source", color=TEXT_MUTED, size=11, weight=ft.FontWeight.BOLD),
+                        audio_dropdown,
+                        ft.Container(height=4),
+                        ft.Text("Microphone", color=TEXT_MUTED, size=11, weight=ft.FontWeight.BOLD),
+                        mic_dropdown,
+                        ft.Container(height=4),
+                        ft.Text("Webcam Source", color=TEXT_MUTED, size=11, weight=ft.FontWeight.BOLD),
+                        webcam_dropdown,
+                        ft.Container(height=4),
+                        ft.Text("Recording Quality", color=TEXT_MUTED, size=11, weight=ft.FontWeight.BOLD),
+                        quality_dropdown,
+                    ],
+                    tight=True,
+                    spacing=6,
+                ),
+                width=310,
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=lambda _: setattr(settings_dialog, 'open', False) or page.update()),
-                ft.FilledButton("Save", on_click=save_settings, bgcolor="#6C5CE7", color="white"),
+                ft.FilledButton("Save Changes", on_click=save_settings, bgcolor="#6C5CE7", color="white"),
             ],
             bgcolor=BG_COLOR,
+            shape=ft.RoundedRectangleBorder(radius=12),
         )
+        
+        # කලින් තිබූ Settings Dialogs ඉවත් කිරීම
+        page.overlay[:] = [d for d in page.overlay if getattr(d, 'data', None) != "settings_data"]
+        
+        # අලුත් ඩයලොග් එකට identifier එකක් ලෙස data එකක් ලබා දීම
+        settings_dialog.data = "settings_data"
         
         page.overlay.append(settings_dialog)
         settings_dialog.open = True
