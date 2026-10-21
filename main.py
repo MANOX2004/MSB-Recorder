@@ -308,6 +308,24 @@ def main(page: ft.Page):
                 )
         return " + ".join(parts)
 
+    def shortcut_signature(shortcut):
+        return tuple(sorted(
+            repr(key) for key in keyboard.HotKey.parse(shortcut)
+        ))
+
+    def find_shortcut_conflict(action, shortcut):
+        signature = shortcut_signature(shortcut)
+        return next(
+            (
+                assigned_action
+                for assigned_action, assigned_shortcut
+                in shortcut_capture_values.items()
+                if assigned_action != action
+                and shortcut_signature(assigned_shortcut) == signature
+            ),
+            None,
+        )
+
     def begin_shortcut_capture(action):
         nonlocal hotkey_listener, shortcut_capture_listener
         nonlocal shortcut_capture_target
@@ -407,6 +425,17 @@ def main(page: ft.Page):
             except ValueError:
                 return
 
+            conflict = find_shortcut_conflict(action, shortcut)
+            if conflict:
+                settings_error = shortcut_capture_fields.get("error")
+                if settings_error:
+                    settings_error.value = (
+                        f"{format_hotkey(shortcut)} is already assigned to {conflict}."
+                    )
+                    settings_error.visible = True
+                    settings_error.update()
+                return
+
             page.run_task(finish_shortcut_capture, action, shortcut)
             return False
 
@@ -427,6 +456,17 @@ def main(page: ft.Page):
                 try:
                     keyboard.HotKey.parse(shortcut)
                 except ValueError:
+                    return
+                conflict = find_shortcut_conflict(action, shortcut)
+                if conflict:
+                    settings_error = shortcut_capture_fields.get("error")
+                    if settings_error:
+                        settings_error.value = (
+                            f"{format_hotkey(shortcut)} is already assigned to "
+                            f"{conflict}."
+                        )
+                        settings_error.visible = True
+                        settings_error.update()
                     return
                 page.run_task(finish_shortcut_capture, action, shortcut)
 
@@ -1047,9 +1087,7 @@ def main(page: ft.Page):
             }
             try:
                 shortcut_signatures = {
-                    action: tuple(sorted(
-                        repr(key) for key in keyboard.HotKey.parse(shortcut)
-                    ))
+                    action: shortcut_signature(shortcut)
                     for action, shortcut in shortcuts.items()
                 }
             except ValueError:
