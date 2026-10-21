@@ -32,7 +32,11 @@ keys use readable labels such as ENTER, SHIFT, TAB, arrow keys, and F-keys;
 key combinations are shown together in a high-contrast overlay for two seconds.
 The Keys Overlay settings let you place the indicator at the bottom left,
 center, or right, choose a small, medium, or large size, and select a custom
-overlay color.
+overlay color. Choose All Keys to display every key press, or Special Keys to
+hide letters and numbers while still displaying special keys.
+Press Save Changes to keep Settings selections between app launches. They are
+stored for the current Windows user in
+`%LOCALAPPDATA%\MSB Recorder\settings.json` and restored after a computer restart.
 
 ## Requirements
 

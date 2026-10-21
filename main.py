@@ -22,6 +22,7 @@ from ui_components import (
 )
 from logic import get_all_open_windows, get_connected_displays
 from pynput import keyboard
+from settings_store import load_settings, save_settings as save_settings_file
 
 def main(page: ft.Page):
     # Window Settings
@@ -106,7 +107,58 @@ def main(page: ft.Page):
         "Key Overlay Position": "Left",
         "Key Overlay Size": "Medium",
         "Key Overlay Color": "#6C5CE7",
+        "Key Overlay Key Type": "All Keys",
     }
+    settings_load_error = None
+    try:
+        loaded_settings, loaded_include_states = load_settings(
+            advanced_settings,
+            include_states,
+        )
+        advanced_settings.update(loaded_settings)
+        include_states.update(loaded_include_states)
+    except RuntimeError as error:
+        settings_load_error = str(error)
+
+    available_microphones = {device["id"] for device in microphone_devices}
+    if advanced_settings["Microphone"] not in available_microphones:
+        advanced_settings["Microphone"] = (
+            microphone_devices[0]["id"] if microphone_devices else None
+        )
+    available_loopbacks = {device["id"] for device in loopback_devices}
+    if advanced_settings["Audio Source"] not in available_loopbacks:
+        advanced_settings["Audio Source"] = (
+            loopback_devices[0]["id"] if loopback_devices else None
+        )
+    if advanced_settings["Webcam Source"] not in webcam_devices:
+        advanced_settings["Webcam Source"] = (
+            webcam_devices[0] if webcam_devices else None
+        )
+
+    invalid_hotkeys = False
+    shortcut_signatures = set()
+    for action, shortcut in advanced_settings["Hotkeys"].items():
+        try:
+            parsed_shortcut = keyboard.HotKey.parse(shortcut)
+        except (TypeError, ValueError):
+            invalid_hotkeys = True
+            break
+        signature = tuple(sorted(repr(key) for key in parsed_shortcut))
+        if signature in shortcut_signatures:
+            invalid_hotkeys = True
+            break
+        shortcut_signatures.add(signature)
+    if invalid_hotkeys:
+        advanced_settings["Hotkeys"] = {
+            "Record": "<f9>",
+            "Stop": "<f10>",
+            "Pause": "<f11>",
+            "Screenshot": "<f12>",
+        }
+        settings_load_error = (
+            "Saved shortcuts were invalid or duplicated and have been reset "
+            "to their defaults."
+        )
 
     # මෙතැන expand=True සහ SPACE_BETWEEN මඟින් මුළු ඉඩ හරියටම බෙදා හරිනු ලැබේ
     content_column = ft.Column(
@@ -169,6 +221,7 @@ def main(page: ft.Page):
                     key_overlay_position=advanced_settings["Key Overlay Position"],
                     key_overlay_size=advanced_settings["Key Overlay Size"],
                     key_overlay_color=advanced_settings["Key Overlay Color"],
+                    key_overlay_key_type=advanced_settings["Key Overlay Key Type"],
                     capture_region=(
                         dict(selected_area)
                         if current_mode == "Area" and selected_area
@@ -872,6 +925,22 @@ def main(page: ft.Page):
             focused_border_color="#6C5CE7",
             expand=True,
         )
+        key_overlay_key_type_dropdown = ft.Dropdown(
+            value=advanced_settings["Key Overlay Key Type"],
+            options=[
+                ft.dropdown.Option("All Keys"),
+                ft.dropdown.Option("Special Keys"),
+            ],
+            bgcolor=CARD_BG,
+            border_color=BORDER_COLOR,
+            color="white",
+            text_size=11,
+            filled=True,
+            border_radius=8,
+            content_padding=8,
+            focused_border_color="#6C5CE7",
+            expand=True,
+        )
         key_overlay_color = advanced_settings["Key Overlay Color"]
         key_overlay_color_preview = ft.Container(
             width=26,
@@ -1110,6 +1179,13 @@ def main(page: ft.Page):
                     ],
                     spacing=8,
                 ),
+                ft.Column(
+                    [
+                        ft.Text("Key types", size=10, color=TEXT_MUTED),
+                        key_overlay_key_type_dropdown,
+                    ],
+                    spacing=2,
+                ),
                 ft.Row(
                     controls=[
                         ft.Text("Overlay color", size=11, color="white", expand=True),
@@ -1241,7 +1317,7 @@ def main(page: ft.Page):
                 settings_error.update()
                 return
 
-            advanced_settings.update({
+            updated_settings = {
                 "Resolution": res_dropdown.value,
                 "Frame Rate": fps_dropdown.value,
                 "Quality": quality_dropdown.value,
@@ -1256,7 +1332,24 @@ def main(page: ft.Page):
                 "Key Overlay Position": key_overlay_position_dropdown.value,
                 "Key Overlay Size": key_overlay_size_dropdown.value,
                 "Key Overlay Color": key_overlay_color_preview.bgcolor,
-            })
+                "Key Overlay Key Type": key_overlay_key_type_dropdown.value,
+            }
+            try:
+                save_settings_file(updated_settings, settings_include_states)
+            except RuntimeError as error:
+                try:
+                    install_hotkeys(advanced_settings["Hotkeys"])
+                except (OSError, RuntimeError, ValueError) as rollback_error:
+                    error = RuntimeError(
+                        f"{error}\nCould not restore the previous shortcuts: "
+                        f"{rollback_error}"
+                    )
+                settings_error.value = str(error)
+                settings_error.visible = True
+                settings_error.update()
+                return
+
+            advanced_settings.update(updated_settings)
             include_states.update(settings_include_states)
             settings_error.visible = False
             main_container.content = content_column
@@ -1396,7 +1489,17 @@ def main(page: ft.Page):
         area_status_text = None
 
         def toggle_include_option(label):
-            include_states[label] = not include_states[label]
+            previous_value = include_states[label]
+            include_states[label] = not previous_value
+            try:
+                save_settings_file(advanced_settings, include_states)
+            except RuntimeError as error:
+                include_states[label] = previous_value
+                page.show_dialog(ft.AlertDialog(
+                    title=ft.Text("Could not save settings"),
+                    content=ft.Text(str(error)),
+                    bgcolor=BG_COLOR,
+                ))
             update_ui()
 
         inc1, inc2 = get_include_options(
@@ -1463,6 +1566,12 @@ def main(page: ft.Page):
         page.show_dialog(ft.AlertDialog(
             title=ft.Text("Could not register keyboard shortcuts"),
             content=ft.Text(str(error)),
+            bgcolor=BG_COLOR,
+        ))
+    if settings_load_error:
+        page.show_dialog(ft.AlertDialog(
+            title=ft.Text("Settings could not be fully loaded"),
+            content=ft.Text(settings_load_error),
             bgcolor=BG_COLOR,
         ))
     page.run_task(center_window, page)

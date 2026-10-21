@@ -96,6 +96,38 @@ def _format_recorded_key(key):
     return names.get(key_name, key_name.replace("_", " ").upper())
 
 
+def _is_special_recorded_key(key):
+    char = getattr(key, "char", None)
+    if char:
+        return not char.isalnum()
+
+    virtual_key = getattr(key, "vk", None)
+    if isinstance(virtual_key, int) and 0x20 <= virtual_key <= 0x7E:
+        return not chr(virtual_key).isalnum()
+
+    return True
+
+
+def _format_key_overlay_label(pressed_keys, key_type):
+    if key_type not in {"All Keys", "Special Keys"}:
+        raise ValueError(f"Unsupported key overlay type: {key_type}")
+
+    visible_keys = [
+        label for label, is_special in pressed_keys.values()
+        if key_type == "All Keys" or is_special
+    ]
+    modifier_order = ("CTRL", "ALT", "SHIFT", "WIN")
+    modifiers = [
+        modifier for modifier in modifier_order
+        if modifier in visible_keys
+    ]
+    other_keys = [
+        label for label in visible_keys
+        if label not in modifier_order
+    ]
+    return " + ".join(modifiers + other_keys)
+
+
 def _draw_recorded_key_overlay(frame, label, position, size, color):
     if position not in {"Left", "Center", "Right"}:
         raise ValueError(f"Unsupported key overlay position: {position}")
@@ -144,6 +176,206 @@ def _draw_recorded_key_overlay(frame, label, position, size, color):
         2,
         cv2.LINE_AA,
     )
+
+
+def _render_cursor_icon(cursor_handle):
+    import ctypes
+    from ctypes import wintypes
+    import win32gui
+
+    icon_info = win32gui.GetIconInfo(cursor_handle)
+    is_icon, hotspot_x, hotspot_y, mask_bitmap, color_bitmap = icon_info
+    bitmap_handle = color_bitmap or mask_bitmap
+    if not bitmap_handle:
+        raise RuntimeError("Windows did not provide a bitmap for the cursor.")
+
+    try:
+        bitmap = win32gui.GetObject(bitmap_handle)
+        width = bitmap.bmWidth
+        height = bitmap.bmHeight if color_bitmap else bitmap.bmHeight // 2
+        if width <= 0 or height <= 0:
+            raise RuntimeError("Windows returned an invalid cursor size.")
+
+        class BitmapInfoHeader(ctypes.Structure):
+            _fields_ = [
+                ("biSize", wintypes.DWORD),
+                ("biWidth", wintypes.LONG),
+                ("biHeight", wintypes.LONG),
+                ("biPlanes", wintypes.WORD),
+                ("biBitCount", wintypes.WORD),
+                ("biCompression", wintypes.DWORD),
+                ("biSizeImage", wintypes.DWORD),
+                ("biXPelsPerMeter", wintypes.LONG),
+                ("biYPelsPerMeter", wintypes.LONG),
+                ("biClrUsed", wintypes.DWORD),
+                ("biClrImportant", wintypes.DWORD),
+            ]
+
+        class RgbQuad(ctypes.Structure):
+            _fields_ = [
+                ("rgbBlue", ctypes.c_ubyte),
+                ("rgbGreen", ctypes.c_ubyte),
+                ("rgbRed", ctypes.c_ubyte),
+                ("rgbReserved", ctypes.c_ubyte),
+            ]
+
+        class BitmapInfo(ctypes.Structure):
+            _fields_ = [
+                ("bmiHeader", BitmapInfoHeader),
+                ("bmiColors", RgbQuad * 1),
+            ]
+
+        bitmap_info = BitmapInfo()
+        bitmap_info.bmiHeader = BitmapInfoHeader(
+            ctypes.sizeof(BitmapInfoHeader),
+            width,
+            -height,
+            1,
+            32,
+            0,
+            width * height * 4,
+            0,
+            0,
+            0,
+            0,
+        )
+
+        gdi32 = ctypes.windll.gdi32
+        user32 = ctypes.windll.user32
+        gdi32.CreateCompatibleDC.restype = wintypes.HDC
+        gdi32.CreateCompatibleDC.argtypes = [wintypes.HDC]
+        gdi32.CreateDIBSection.restype = wintypes.HBITMAP
+        gdi32.CreateDIBSection.argtypes = [
+            wintypes.HDC,
+            ctypes.POINTER(BitmapInfo),
+            wintypes.UINT,
+            ctypes.POINTER(ctypes.c_void_p),
+            wintypes.HANDLE,
+            wintypes.DWORD,
+        ]
+        gdi32.SelectObject.restype = wintypes.HGDIOBJ
+        gdi32.SelectObject.argtypes = [wintypes.HDC, wintypes.HGDIOBJ]
+        gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
+        gdi32.DeleteDC.argtypes = [wintypes.HDC]
+        user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+        user32.GetCursorPos.restype = wintypes.BOOL
+        user32.DrawIconEx.argtypes = [
+            wintypes.HDC,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.HICON,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.UINT,
+            wintypes.HBRUSH,
+            wintypes.UINT,
+        ]
+
+        device_context = gdi32.CreateCompatibleDC(None)
+        if not device_context:
+            raise ctypes.WinError()
+        bitmap_handle = None
+        old_bitmap = None
+        dib_bits = ctypes.c_void_p()
+        try:
+            bitmap_handle = gdi32.CreateDIBSection(
+                device_context,
+                ctypes.byref(bitmap_info),
+                0,
+                ctypes.byref(dib_bits),
+                None,
+                0,
+            )
+            if not bitmap_handle or not dib_bits:
+                raise ctypes.WinError()
+            old_bitmap = gdi32.SelectObject(device_context, bitmap_handle)
+            pixels = np.ctypeslib.as_array(
+                ctypes.cast(dib_bits, ctypes.POINTER(ctypes.c_ubyte)),
+                shape=(height, width, 4),
+            )
+            backgrounds = []
+            for value in (0, 255):
+                pixels[:] = value
+                pixels[:, :, 3] = 255
+                if not user32.DrawIconEx(
+                    device_context,
+                    0,
+                    0,
+                    cursor_handle,
+                    width,
+                    height,
+                    0,
+                    None,
+                    0x0003,
+                ):
+                    raise ctypes.WinError()
+                backgrounds.append(pixels[:, :, :3].copy())
+        finally:
+            if old_bitmap:
+                gdi32.SelectObject(device_context, old_bitmap)
+            if bitmap_handle:
+                gdi32.DeleteObject(bitmap_handle)
+            gdi32.DeleteDC(device_context)
+
+        black, white = backgrounds
+        alpha = np.clip(
+            255 - np.mean(white.astype(np.int16) - black.astype(np.int16), axis=2),
+            0,
+            255,
+        ).astype(np.uint8)
+        alpha_float = alpha.astype(np.float32) / 255
+        color = np.zeros_like(black)
+        visible = alpha > 0
+        color[visible] = np.clip(
+            black[visible].astype(np.float32) / alpha_float[visible, None],
+            0,
+            255,
+        ).astype(np.uint8)
+        return color, alpha, (hotspot_x, hotspot_y)
+    finally:
+        for resource in (mask_bitmap, color_bitmap):
+            if resource:
+                win32gui.DeleteObject(resource)
+
+
+def _draw_cursor_image(
+    frame, cursor_color, cursor_alpha, hotspot, cursor_x, cursor_y,
+    capture_width, capture_height,
+):
+    scale_x = frame.shape[1] / capture_width
+    scale_y = frame.shape[0] / capture_height
+    cursor_width = max(1, round(cursor_color.shape[1] * scale_x))
+    cursor_height = max(1, round(cursor_color.shape[0] * scale_y))
+    cursor_color = cv2.resize(
+        cursor_color,
+        (cursor_width, cursor_height),
+        interpolation=cv2.INTER_LINEAR,
+    )
+    cursor_alpha = cv2.resize(
+        cursor_alpha,
+        (cursor_width, cursor_height),
+        interpolation=cv2.INTER_LINEAR,
+    ).astype(np.float32)[:, :, None] / 255
+    left = round(cursor_x - hotspot[0] * scale_x)
+    top = round(cursor_y - hotspot[1] * scale_y)
+    x1 = max(0, left)
+    y1 = max(0, top)
+    x2 = min(frame.shape[1], left + cursor_width)
+    y2 = min(frame.shape[0], top + cursor_height)
+    if x1 >= x2 or y1 >= y2:
+        return
+
+    cursor_x1 = x1 - left
+    cursor_y1 = y1 - top
+    cursor_x2 = cursor_x1 + x2 - x1
+    cursor_y2 = cursor_y1 + y2 - y1
+    alpha = cursor_alpha[cursor_y1:cursor_y2, cursor_x1:cursor_x2]
+    foreground = cursor_color[cursor_y1:cursor_y2, cursor_x1:cursor_x2]
+    background = frame[y1:y2, x1:x2]
+    frame[y1:y2, x1:x2] = (
+        foreground.astype(np.float32) * alpha
+        + background.astype(np.float32) * (1 - alpha)
+    ).astype(np.uint8)
 
 
 def get_audio_capture_devices():
@@ -853,6 +1085,7 @@ def _record_screen_worker(
     key_overlay_position="Left",
     key_overlay_size="Medium",
     key_overlay_color="#6C5CE7",
+    key_overlay_key_type="All Keys",
     capture_region=None,
 ):
     """Capture the screen or a window and encode it with the selected settings."""
@@ -872,6 +1105,8 @@ def _record_screen_worker(
         raise ValueError(f"Unsupported video quality: {quality}")
     if output_format not in {"mp4", "mkv", "avi"}:
         raise ValueError(f"Unsupported output format: {output_format}")
+    if key_overlay_key_type not in {"All Keys", "Special Keys"}:
+        raise ValueError(f"Unsupported key overlay type: {key_overlay_key_type}")
     global _recording_file_path, _audio_temp_dir
     _recording_file_path = file_path
 
@@ -887,22 +1122,18 @@ def _record_screen_worker(
         from pynput import keyboard
 
         def update_key_overlay_label():
-            pressed_keys = key_overlay["pressed"]
-            modifier_order = ("CTRL", "ALT", "SHIFT", "WIN")
-            labels = [
-                modifier for modifier in modifier_order
-                if modifier in pressed_keys.values()
-            ]
-            labels.extend(
-                label for label in pressed_keys.values()
-                if label not in modifier_order
+            key_overlay["label"] = _format_key_overlay_label(
+                key_overlay["pressed"],
+                key_overlay_key_type,
             )
-            key_overlay["label"] = " + ".join(labels)
             key_overlay["timestamp"] = time.time()
 
         def on_key_press(key):
             with key_overlay_lock:
-                key_overlay["pressed"][key] = _format_recorded_key(key)
+                key_overlay["pressed"][key] = (
+                    _format_recorded_key(key),
+                    _is_special_recorded_key(key),
+                )
                 update_key_overlay_label()
 
         def on_key_release(key):
@@ -1002,6 +1233,11 @@ def _record_screen_worker(
         point = wintypes.POINT()
         if not ctypes.windll.user32.GetCursorPos(ctypes.byref(point)):
             return
+        if not (
+            screen_x <= point.x < screen_x + capture_width
+            and screen_y <= point.y < screen_y + capture_height
+        ):
+            return
         x = int((point.x - screen_x) * frame.shape[1] / capture_width)
         y = int((point.y - screen_y) * frame.shape[0] / capture_height)
         if not (0 <= x < frame.shape[1] and 0 <= y < frame.shape[0]):
@@ -1013,8 +1249,48 @@ def _record_screen_worker(
         if clicked:
             cv2.circle(frame, (x, y), 22, (0, 0, 255), 3)
         if include_cursor:
-            cv2.circle(frame, (x, y), 6, (255, 255, 255), -1)
-            cv2.circle(frame, (x, y), 6, (0, 0, 0), 1)
+            cursor_info = ctypes.windll.user32.GetCursorInfo
+            class CursorInfo(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize", wintypes.DWORD),
+                    ("flags", wintypes.DWORD),
+                    ("hCursor", wintypes.HANDLE),
+                    ("ptScreenPos", wintypes.POINT),
+                ]
+
+            cursor = CursorInfo()
+            cursor.cbSize = ctypes.sizeof(CursorInfo)
+            cursor_info.argtypes = [ctypes.POINTER(CursorInfo)]
+            cursor_info.restype = wintypes.BOOL
+            if not cursor_info(ctypes.byref(cursor)):
+                raise ctypes.WinError()
+            if not cursor.flags & 0x00000001:
+                return
+
+            cache = draw_pointer.cursor_cache
+            if cache["handle"] != cursor.hCursor:
+                cache["color"], cache["alpha"], cache["hotspot"] = (
+                    _render_cursor_icon(cursor.hCursor)
+                )
+                cache["handle"] = cursor.hCursor
+
+            _draw_cursor_image(
+                frame,
+                cache["color"],
+                cache["alpha"],
+                cache["hotspot"],
+                x,
+                y,
+                capture_width,
+                capture_height,
+            )
+
+    draw_pointer.cursor_cache = {
+        "handle": None,
+        "color": None,
+        "alpha": None,
+        "hotspot": None,
+    }
 
     def draw_key_overlay(frame):
         if not include_keys:
@@ -1311,6 +1587,7 @@ def start_screen_recording(
     key_overlay_position="Left",
     key_overlay_size="Medium",
     key_overlay_color="#6C5CE7",
+    key_overlay_key_type="All Keys",
     capture_region=None,
 ):
     global _is_recording_flag, _is_paused_flag, _recording_thread, _recording_error
@@ -1349,6 +1626,7 @@ def start_screen_recording(
             key_overlay_position,
             key_overlay_size,
             key_overlay_color,
+            key_overlay_key_type,
             capture_region,
         ),
         daemon=True
