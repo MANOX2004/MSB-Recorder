@@ -11,8 +11,10 @@ the recording. Use the camera button to save a PNG
 screenshot in the configured recordings folder. Screenshot Settings let you
 choose PNG or JPEG; JPEG screenshots use maximum quality. Screen mode captures
 the full screen, Window mode captures the selected window, and Area mode
-captures the selected screen region. In Area mode, the selected region stays
-visible with a green border while idle and a red border while recording. Drag
+captures the selected screen region. Settings can turn saved-recording and
+saved-screenshot confirmation popups off; capture errors are still reported.
+In Area mode, the selected region stays visible with a green border while idle
+and a red border while recording. Drag
 the center move handle to reposition the region, or drag its border and corner
 handles to resize it. Press Escape or click the close control on the area frame
 to switch back to Screen mode; an active area recording is stopped first. The

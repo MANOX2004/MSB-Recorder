@@ -84,6 +84,7 @@ def main(page: ft.Page):
         "Quality": "High",
         "Output Format": "MP4 (Recommended)",
         "Screenshot Format": "PNG",
+        "Show Save Confirmation": True,
         "Save Path": default_save_path,
         "Microphone": microphone_devices[0]["id"] if microphone_devices else None,
         "Audio Source": loopback_devices[0]["id"] if loopback_devices else None,
@@ -177,7 +178,7 @@ def main(page: ft.Page):
                 content=ft.Text(error_message),
                 bgcolor=BG_COLOR,
             ))
-        elif saved_file:
+        elif saved_file and advanced_settings["Show Save Confirmation"]:
             page.show_dialog(ft.AlertDialog(
                 title=ft.Text("Recording saved"),
                 content=ft.Text(f"Saved video to:\n{saved_file}"),
@@ -241,11 +242,12 @@ def main(page: ft.Page):
             ))
             return
 
-        page.show_dialog(ft.AlertDialog(
-            title=ft.Text("Screenshot saved"),
-            content=ft.Text(f"Saved screenshot to:\n{screenshot_path}"),
-            bgcolor=BG_COLOR,
-        ))
+        if advanced_settings["Show Save Confirmation"]:
+            page.show_dialog(ft.AlertDialog(
+                title=ft.Text("Screenshot saved"),
+                content=ft.Text(f"Saved screenshot to:\n{screenshot_path}"),
+                bgcolor=BG_COLOR,
+            ))
 
     def minimize_window(e):
         page.window.minimized = True
@@ -416,6 +418,10 @@ def main(page: ft.Page):
             ],
             bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=11, filled=True,
             border_radius=8, content_padding=8, focused_border_color="#6C5CE7", expand=True,
+        )
+        save_confirmation_switch = ft.Switch(
+            value=advanced_settings["Show Save Confirmation"],
+            active_color="#3B82F6",
         )
         # ---------------- Audio Settings Controls ----------------
         mic_options = [
@@ -671,7 +677,20 @@ def main(page: ft.Page):
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     spacing=6
-                )
+                ),
+                ft.Row(
+                    controls=[
+                        ft.Text(
+                            "Show saved-file popups",
+                            size=11,
+                            color="white",
+                            expand=True,
+                        ),
+                        save_confirmation_switch,
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=6,
+                ),
             ]
         )
 
@@ -697,6 +716,7 @@ def main(page: ft.Page):
                 "Quality": quality_dropdown.value,
                 "Output Format": format_dropdown.value,
                 "Screenshot Format": screenshot_format_dropdown.value,
+                "Show Save Confirmation": save_confirmation_switch.value,
                 "Save Path": selected_path,
                 "Microphone": mic_dropdown.value,
                 "Audio Source": sys_audio_dropdown.value,
