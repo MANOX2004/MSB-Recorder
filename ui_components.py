@@ -193,7 +193,6 @@ def get_include_options(include_states=None, on_toggle=None, enabled=True):
             "Clicks": False,
             "Keys": False
         }
-
     def chip_option(icon, label):
         is_selected = include_states.get(label, False)
         b_color = "#6C5CE7" if is_selected and enabled else BORDER_COLOR
@@ -241,7 +240,9 @@ def get_include_options(include_states=None, on_toggle=None, enabled=True):
     )
     return row1, row2
 
-def get_record_controls(is_recording=False, on_record_click=None):
+def get_record_controls(
+    is_recording=False, on_record_click=None, on_screenshot_click=None
+):
     # රෙකෝඩින් වන විට Red පාටත්, නැති විට Purple (#6C5CE7) පාටත් වීම
     btn_bgcolor = ACCENT_RED if is_recording else "#6C5CE7"
     
@@ -272,8 +273,8 @@ def get_record_controls(is_recording=False, on_record_click=None):
         style=ft.ButtonStyle(shape=ft.CircleBorder()),
         width=38,
         height=38,
-        disabled=True,
-        tooltip="Screenshot is not available yet",
+        on_click=on_screenshot_click,
+        tooltip="Take a screenshot",
     )
     small_btn_right = ft.IconButton(
         icon=ft.Icons.PAUSE_ROUNDED,

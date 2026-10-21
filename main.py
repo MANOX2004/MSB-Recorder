@@ -1,4 +1,5 @@
 import flet as ft
+from datetime import datetime
 import subprocess
 from logic import (
     get_audio_capture_devices,
@@ -79,7 +80,6 @@ def main(page: ft.Page):
         "Microphone": microphone_devices[0]["id"] if microphone_devices else None,
         "Audio Source": loopback_devices[0]["id"] if loopback_devices else None,
         "Webcam Source": webcam_devices[0] if webcam_devices else None,
-        "Mix Audio": True,
     }
 
     # මෙතැන expand=True සහ SPACE_BETWEEN මඟින් මුළු ඉඩ හරියටම බෙදා හරිනු ලැබේ
@@ -133,7 +133,7 @@ def main(page: ft.Page):
                     quality=advanced_settings["Quality"],
                     output_format=output_format,
                     audio_inputs=audio_inputs,
-                    mix_audio=advanced_settings["Mix Audio"],
+                    mix_audio=True,
                     webcam_device=webcam_device,
                     include_cursor=include_states["Cursor"],
                     include_clicks=include_states["Clicks"],
@@ -178,6 +178,32 @@ def main(page: ft.Page):
                 content=ft.Text(str(error)),
                 bgcolor=BG_COLOR,
             ))
+
+    def take_screenshot(e):
+        import pyautogui
+        import pyscreeze
+
+        save_path = advanced_settings.get("Save Path", default_save_path)
+        screenshot_path = os.path.join(
+            save_path,
+            f"Screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.png",
+        )
+        try:
+            os.makedirs(save_path, exist_ok=True)
+            pyautogui.screenshot().save(screenshot_path)
+        except (OSError, pyautogui.PyAutoGUIException, pyscreeze.PyScreezeException) as error:
+            page.show_dialog(ft.AlertDialog(
+                title=ft.Text("Could not take screenshot"),
+                content=ft.Text(str(error)),
+                bgcolor=BG_COLOR,
+            ))
+            return
+
+        page.show_dialog(ft.AlertDialog(
+            title=ft.Text("Screenshot saved"),
+            content=ft.Text(f"Saved screenshot to:\n{screenshot_path}"),
+            bgcolor=BG_COLOR,
+        ))
 
     def minimize_window(e):
         page.window.minimized = True
@@ -312,8 +338,6 @@ def main(page: ft.Page):
         )
         page.show_dialog(coming_soon_dialog)
 
-    # Modern Studio Settings Modal Window Function
-    # Modern Studio Settings Modal Window Function (Fixed & Clean)
     def open_settings_dialog(e):
         settings_include_states = include_states.copy()
         settings_error = ft.Text(
@@ -407,10 +431,15 @@ def main(page: ft.Page):
         )
         sys_audio_switch = include_switch("System audio")
 
-        mix_audio_switch = ft.Switch(
-            value=advanced_settings["Mix Audio"],
-            active_color="#3B82F6",
+        def on_audio_switch_change(label, event):
+            settings_include_states[label] = event.control.value
+            page.update()
+
+        mic_switch.on_change = lambda event: on_audio_switch_change("Mic", event)
+        sys_audio_switch.on_change = lambda event: on_audio_switch_change(
+            "System audio", event
         )
+
         webcam_dropdown = ft.Dropdown(
             value=advanced_settings.get("Webcam Source"),
             options=[ft.dropdown.Option(device) for device in webcam_devices],
@@ -522,10 +551,10 @@ def main(page: ft.Page):
         audio_card = build_card(
             ft.Icons.VOLUME_UP_OUTLINED,
             "Audio Settings",
-            "Choose microphone and speaker loopback inputs.",
+            "Selected microphone and system audio are mixed automatically.",
             [
                 ft.Text(
-                    "Main-screen Include buttons are synchronized with these switches.",
+                    "Select both sources to enable mixing; Mix locks these switches while active.",
                     size=10,
                     color=TEXT_MUTED,
                 ),
@@ -549,14 +578,6 @@ def main(page: ft.Page):
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     spacing=6
                 ),
-                ft.Row(
-                    controls=[
-                        ft.Text("Mix microphone and system audio", size=11, color="white", expand=True),
-                        mix_audio_switch
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    spacing=6
-                )
             ]
         )
 
@@ -571,15 +592,23 @@ def main(page: ft.Page):
                         webcam_dropdown,
                         webcam_switch,
                     ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     spacing=6,
                 ),
                 ft.Row(
                     controls=[
                         ft.Text("Show cursor", size=11, color="white", expand=True),
                         cursor_switch,
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=6,
+                ),
+                ft.Row(
+                    controls=[
                         ft.Text("Highlight clicks", size=11, color="white", expand=True),
                         clicks_switch,
                     ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     spacing=6,
                 ),
                 ft.Row(
@@ -587,6 +616,7 @@ def main(page: ft.Page):
                         ft.Text("Show key presses", size=11, color="white", expand=True),
                         keys_switch,
                     ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     spacing=6,
                 ),
             ],
@@ -642,46 +672,63 @@ def main(page: ft.Page):
                 "Microphone": mic_dropdown.value,
                 "Audio Source": sys_audio_dropdown.value,
                 "Webcam Source": webcam_dropdown.value,
-                "Mix Audio": mix_audio_switch.value,
             })
             include_states.update(settings_include_states)
             settings_error.visible = False
-            page.pop_dialog()
+            main_container.content = content_column
             update_ui()
 
         def cancel_settings(evt):
-            page.pop_dialog()
+            main_container.content = content_column
+            page.update()
 
-        settings_dialog = ft.AlertDialog(
-            content=ft.Container(
-                content=ft.Column(
+        settings_view = ft.Column(
+            controls=[
+                create_title_bar(page, minimize_window, close_window),
+                ft.Row(
+                    controls=[
+                        ft.Text(
+                            "Capture Settings",
+                            size=16,
+                            weight=ft.FontWeight.BOLD,
+                            color="white",
+                            expand=True,
+                        ),
+                        ft.TextButton("Back", on_click=cancel_settings),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                ft.Column(
                     controls=[
                         video_card,
                         audio_card,
                         include_card,
                         other_card,
                         settings_error,
-                        ft.Row(
-                            controls=[
-                                ft.TextButton("Cancel", on_click=cancel_settings),
-                                ft.FilledButton("Save Changes", on_click=save_settings, bgcolor="#3B82F6", color="white"),
-                            ],
-                            alignment=ft.MainAxisAlignment.END,
-                            spacing=10
-                        )
                     ],
                     spacing=10,
-                    tight=True,
-                    scroll=ft.ScrollMode.AUTO
+                    scroll=ft.ScrollMode.AUTO,
+                    expand=True,
                 ),
-                width=460,
-                padding=5
-            ),
-            bgcolor=BG_COLOR,
-            shape=ft.RoundedRectangleBorder(radius=12),
+                ft.Row(
+                    controls=[
+                        ft.TextButton("Cancel", on_click=cancel_settings),
+                        ft.FilledButton(
+                            "Save Changes",
+                            on_click=save_settings,
+                            bgcolor="#3B82F6",
+                            color="white",
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.END,
+                    spacing=10,
+                ),
+            ],
+            spacing=8,
+            expand=True,
         )
-
-        page.show_dialog(settings_dialog)
+        main_container.content = settings_view
+        page.update()
 
     # Window Picker Dialog
     def open_window_picker_dialog(e):
@@ -756,7 +803,11 @@ def main(page: ft.Page):
             inc1,
             inc2,
             ft.Container(expand=True),  
-            get_record_controls(is_recording=is_recording, on_record_click=toggle_recording),
+            get_record_controls(
+                is_recording=is_recording,
+                on_record_click=toggle_recording,
+                on_screenshot_click=take_screenshot,
+            ),
             ft.Divider(height=1, color=BORDER_COLOR),
             get_footer(on_open_recordings=open_recordings),
         ])
@@ -775,5 +826,9 @@ def main(page: ft.Page):
 
     page.add(main_container)
     update_ui()
+    page.run_task(center_window, page)
+
+async def center_window(page):
+    await page.window.center()
 
 ft.run(main)

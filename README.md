@@ -5,7 +5,9 @@ It supports video recording with optional audio, webcam, cursor, click, and
 keyboard capture. The main-screen Include controls are quick switches
 synchronized with the capture switches in Settings. Audio capture requires a
 microphone or Windows speaker loopback device; available inputs are listed
-automatically.
+automatically. When both microphone and system audio are selected, they are
+mixed automatically into the recording. Use the camera button to save a PNG
+screenshot in the configured recordings folder.
 
 ## Requirements
 
