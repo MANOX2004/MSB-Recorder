@@ -7,3 +7,5 @@ screeninfo
 pywin32
 pyautogui
 PyGetWindow
+SoundCard
+pynput

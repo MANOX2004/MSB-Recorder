@@ -183,7 +183,7 @@ def get_display_dropdown():
         focused_border_color="#6C5CE7",
     )
 
-def get_include_options(include_states=None, on_toggle=None):
+def get_include_options(include_states=None, on_toggle=None, enabled=True):
     if include_states is None:
         include_states = {
             "System audio": True,
@@ -196,8 +196,8 @@ def get_include_options(include_states=None, on_toggle=None):
 
     def chip_option(icon, label):
         is_selected = include_states.get(label, False)
-        b_color = "#6C5CE7" if is_selected else BORDER_COLOR
-        bg_col = "#222332" if is_selected else CARD_BG
+        b_color = "#6C5CE7" if is_selected and enabled else BORDER_COLOR
+        bg_col = "#222332" if is_selected and enabled else CARD_BG
         
         def on_click_action(e):
             if on_toggle:
@@ -206,8 +206,8 @@ def get_include_options(include_states=None, on_toggle=None):
         return ft.Container(
             content=ft.Row(
                 controls=[
-                    ft.Icon(icon, color="white" if is_selected else TEXT_MUTED, size=14),
-                    ft.Text(label, color="white" if is_selected else TEXT_MUTED, size=11, weight=ft.FontWeight.W_500),
+                    ft.Icon(icon, color="white" if is_selected and enabled else TEXT_MUTED, size=14),
+                    ft.Text(label, color="white" if is_selected and enabled else TEXT_MUTED, size=11, weight=ft.FontWeight.W_500),
                 ],
                 tight=True,
                 spacing=5,
@@ -219,13 +219,13 @@ def get_include_options(include_states=None, on_toggle=None):
             padding=8,
             expand=True,
             alignment=ft.alignment.Alignment(0, 0),  # <-- මෙතැන ft.alignment.center වෙනුවට Alignment(0, 0) යොදන ලදී
-            on_click=on_click_action,
+            on_click=on_click_action if enabled else None,
             ink=True,
         )
     
     row1 = ft.Row(
         controls=[
-            chip_icon := chip_option(ft.Icons.VOLUME_UP_ROUNDED, "System audio") if False else chip_option(ft.Icons.VOLUME_UP_ROUNDED, "System audio"),
+            chip_option(ft.Icons.VOLUME_UP_ROUNDED, "System audio"),
             chip_option(ft.Icons.MIC_ROUNDED, "Mic"),
             chip_option(ft.Icons.CAMERA_ALT_ROUNDED, "Webcam"),
         ],
@@ -266,24 +266,28 @@ def get_record_controls(is_recording=False, on_record_click=None):
     
     small_btn_left = ft.IconButton(
         icon=ft.Icons.ADD_A_PHOTO_OUTLINED,
-        icon_color="white",
+        icon_color=TEXT_MUTED,
         icon_size=16,
         bgcolor=CARD_BG,
         style=ft.ButtonStyle(shape=ft.CircleBorder()),
         width=38,
         height=38,
+        disabled=True,
+        tooltip="Screenshot is not available yet",
     )
     small_btn_right = ft.IconButton(
         icon=ft.Icons.PAUSE_ROUNDED,
-        icon_color="white",
+        icon_color=TEXT_MUTED,
         icon_size=16,
         bgcolor=CARD_BG,
         style=ft.ButtonStyle(shape=ft.CircleBorder()),
         width=38,
         height=38,
+        disabled=True,
+        tooltip="Pause is not available yet",
     )
     
-    status_text = "Recording in progress..." if is_recording else "Press F9 to start"
+    status_text = "Recording in progress..." if is_recording else "Press record to start"
 
     return ft.Column(
         controls=[
@@ -299,16 +303,20 @@ def get_record_controls(is_recording=False, on_record_click=None):
         spacing=6,
     )
 
-def get_footer():
+def get_footer(on_open_recordings=None):
     return ft.Row(
         controls=[
             ft.Text("Ready", color=TEXT_MUTED, size=11),
-            ft.Row(
-                controls=[
-                    ft.Icon(ft.Icons.FOLDER_OPEN_ROUNDED, color=TEXT_MUTED, size=13),
-                    ft.Text("Open recordings", color=TEXT_MUTED, size=11),
-                ],
-                spacing=4,
+            ft.Container(
+                content=ft.Row(
+                    controls=[
+                        ft.Icon(ft.Icons.FOLDER_OPEN_ROUNDED, color=TEXT_MUTED, size=13),
+                        ft.Text("Open recordings", color=TEXT_MUTED, size=11),
+                    ],
+                    spacing=4,
+                ),
+                on_click=on_open_recordings,
+                ink=True,
             )
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
