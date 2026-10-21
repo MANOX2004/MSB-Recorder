@@ -4,6 +4,7 @@ import subprocess
 from logic import (
     get_audio_capture_devices,
     get_video_capture_devices,
+    capture_window_screenshot,
     start_screen_recording,
     stop_screen_recording,
 )
@@ -76,6 +77,7 @@ def main(page: ft.Page):
         "Frame Rate": "60 FPS",
         "Quality": "High",
         "Output Format": "MP4 (Recommended)",
+        "Screenshot Format": "PNG",
         "Save Path": default_save_path,
         "Microphone": microphone_devices[0]["id"] if microphone_devices else None,
         "Audio Source": loopback_devices[0]["id"] if loopback_devices else None,
@@ -184,14 +186,33 @@ def main(page: ft.Page):
         import pyscreeze
 
         save_path = advanced_settings.get("Save Path", default_save_path)
+        screenshot_format = advanced_settings["Screenshot Format"]
+        file_extension = screenshot_format.lower()
         screenshot_path = os.path.join(
             save_path,
-            f"Screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.png",
+            f"Screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.{file_extension}",
         )
         try:
             os.makedirs(save_path, exist_ok=True)
-            pyautogui.screenshot().save(screenshot_path)
-        except (OSError, pyautogui.PyAutoGUIException, pyscreeze.PyScreezeException) as error:
+            if current_mode == "Window":
+                if not selected_window_title or selected_window_title == "None":
+                    raise ValueError("Select a window before taking a window screenshot.")
+                screenshot = capture_window_screenshot(selected_window_title)
+            else:
+                screenshot = pyautogui.screenshot()
+
+            if screenshot_format == "JPEG":
+                screenshot = screenshot.convert("RGB")
+                screenshot.save(screenshot_path, format="JPEG", quality=100)
+            else:
+                screenshot.save(screenshot_path, format="PNG")
+        except (
+            OSError,
+            RuntimeError,
+            ValueError,
+            pyautogui.PyAutoGUIException,
+            pyscreeze.PyScreezeException,
+        ) as error:
             page.show_dialog(ft.AlertDialog(
                 title=ft.Text("Could not take screenshot"),
                 content=ft.Text(str(error)),
@@ -404,6 +425,15 @@ def main(page: ft.Page):
             border_radius=8, content_padding=8, focused_border_color="#6C5CE7", expand=True
         )
 
+        screenshot_format_dropdown = ft.Dropdown(
+            value=advanced_settings["Screenshot Format"],
+            options=[
+                ft.dropdown.Option("PNG"),
+                ft.dropdown.Option("JPEG"),
+            ],
+            bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=11, filled=True,
+            border_radius=8, content_padding=8, focused_border_color="#6C5CE7", expand=True,
+        )
         # ---------------- Audio Settings Controls ----------------
         mic_options = [
             ft.dropdown.Option(key=device["id"], text=device["name"])
@@ -547,17 +577,32 @@ def main(page: ft.Page):
             ]
         )
 
+        screenshot_card = build_card(
+            ft.Icons.ADD_A_PHOTO_OUTLINED,
+            "Screenshot Settings",
+            "Choose the image format. JPEG uses maximum quality.",
+            [
+                ft.Column(
+                    [
+                        ft.Text("File type", size=10, color=TEXT_MUTED),
+                        screenshot_format_dropdown,
+                    ],
+                    spacing=2,
+                ),
+                ft.Text(
+                    "Screen mode captures the full screen; Window mode captures the selected window.",
+                    size=10,
+                    color=TEXT_MUTED,
+                ),
+            ],
+        )
+
         # --- Section 2: Audio Settings Card ---
         audio_card = build_card(
             ft.Icons.VOLUME_UP_OUTLINED,
             "Audio Settings",
             "Selected microphone and system audio are mixed automatically.",
             [
-                ft.Text(
-                    "Select both sources to enable mixing; Mix locks these switches while active.",
-                    size=10,
-                    color=TEXT_MUTED,
-                ),
                 ft.Row(
                     controls=[
                         ft.Icon(ft.Icons.MIC_OUTLINED, color=TEXT_MUTED, size=16),
@@ -668,6 +713,7 @@ def main(page: ft.Page):
                 "Frame Rate": fps_dropdown.value,
                 "Quality": quality_dropdown.value,
                 "Output Format": format_dropdown.value,
+                "Screenshot Format": screenshot_format_dropdown.value,
                 "Save Path": selected_path,
                 "Microphone": mic_dropdown.value,
                 "Audio Source": sys_audio_dropdown.value,
@@ -701,6 +747,7 @@ def main(page: ft.Page):
                 ft.Column(
                     controls=[
                         video_card,
+                        screenshot_card,
                         audio_card,
                         include_card,
                         other_card,

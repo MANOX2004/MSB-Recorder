@@ -88,6 +88,54 @@ def get_all_open_windows():
     return sorted(list(set(windows_list)))
 
 
+def capture_window_screenshot(window_title):
+    import ctypes
+    import win32gui
+    import win32ui
+    from PIL import Image
+
+    window_handle = win32gui.FindWindow(None, window_title)
+    if not window_handle:
+        raise RuntimeError(f"The selected window is no longer open: {window_title}")
+
+    left, top, right, bottom = win32gui.GetWindowRect(window_handle)
+    width = right - left
+    height = bottom - top
+    if width <= 0 or height <= 0:
+        raise RuntimeError("The selected window has no capturable area.")
+
+    window_dc = win32gui.GetWindowDC(window_handle)
+    if not window_dc:
+        raise RuntimeError("Windows could not access the selected window.")
+
+    memory_dc = None
+    capture_dc = None
+    bitmap = None
+    try:
+        memory_dc = win32ui.CreateDCFromHandle(window_dc)
+        capture_dc = memory_dc.CreateCompatibleDC()
+        bitmap = win32ui.CreateBitmap()
+        bitmap.CreateCompatibleBitmap(memory_dc, width, height)
+        capture_dc.SelectObject(bitmap)
+        if not ctypes.windll.user32.PrintWindow(
+            window_handle, capture_dc.GetSafeHdc(), 2
+        ):
+            raise RuntimeError("Windows could not capture the selected window.")
+
+        pixels = np.frombuffer(
+            bitmap.GetBitmapBits(True), dtype=np.uint8
+        ).reshape((height, width, 4))
+        return Image.fromarray(cv2.cvtColor(pixels, cv2.COLOR_BGRA2RGB))
+    finally:
+        if bitmap is not None:
+            win32gui.DeleteObject(bitmap.GetHandle())
+        if capture_dc is not None:
+            capture_dc.DeleteDC()
+        if memory_dc is not None:
+            memory_dc.DeleteDC()
+        win32gui.ReleaseDC(window_handle, window_dc)
+
+
 def _record_screen_worker(
     save_dir,
     record_mode="Screen",

@@ -7,7 +7,9 @@ synchronized with the capture switches in Settings. Audio capture requires a
 microphone or Windows speaker loopback device; available inputs are listed
 automatically. When both microphone and system audio are selected, they are
 mixed automatically into the recording. Use the camera button to save a PNG
-screenshot in the configured recordings folder.
+screenshot in the configured recordings folder. Screenshot Settings let you
+choose PNG or JPEG; JPEG screenshots use maximum quality. Screen mode captures
+the full screen, while Window mode captures the selected window.
 
 ## Requirements
 
