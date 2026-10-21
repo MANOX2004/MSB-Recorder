@@ -22,6 +22,11 @@ frame is excluded from screen capture, so it remains visible on screen without
 appearing in the recorded video. Area recordings preserve the selected
 region's proportions and center it at the chosen output resolution, adding
 black space where the aspect ratios differ instead of stretching the image.
+Keyboard shortcuts for Record, Stop, Pause/Resume, and Screenshot can be
+set by clicking the shortcut button and pressing the desired key or key
+combination, including a single modifier key; the defaults are F9, F10, F11,
+and F12. Each button shows the action name beside its assigned key. Pause
+temporarily suspends captured video and audio.
 
 ## Requirements
 

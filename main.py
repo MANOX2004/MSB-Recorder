@@ -11,6 +11,7 @@ from logic import (
     select_capture_region,
     start_screen_recording,
     stop_screen_recording,
+    set_recording_paused,
 )
 from ui_components import (
     BG_COLOR, BORDER_COLOR, CARD_BG, TEXT_MUTED, card_border,
@@ -20,6 +21,7 @@ from ui_components import (
     get_record_controls, get_footer
 )
 from logic import get_all_open_windows, get_connected_displays
+from pynput import keyboard
 
 def main(page: ft.Page):
     # Window Settings
@@ -40,6 +42,12 @@ def main(page: ft.Page):
     selected_area = None
     area_frame_overlay = None
     area_status_text = None
+    is_paused = False
+    hotkey_listener = None
+    shortcut_capture_target = None
+    shortcut_capture_fields = {}
+    shortcut_capture_values = {}
+    shortcut_capture_listener = None
 
     import os
     videos_dir = os.path.join(os.path.expanduser("~"), "Videos")
@@ -85,6 +93,12 @@ def main(page: ft.Page):
         "Output Format": "MP4 (Recommended)",
         "Screenshot Format": "PNG",
         "Show Save Confirmation": True,
+        "Hotkeys": {
+            "Record": "<f9>",
+            "Stop": "<f10>",
+            "Pause": "<f11>",
+            "Screenshot": "<f12>",
+        },
         "Save Path": default_save_path,
         "Microphone": microphone_devices[0]["id"] if microphone_devices else None,
         "Audio Source": loopback_devices[0]["id"] if loopback_devices else None,
@@ -100,7 +114,7 @@ def main(page: ft.Page):
 
     # Record button එක ක්ලික් කළ විට රෙකෝඩින් ආරම්භ වීම / නැවතීම
     def toggle_recording(e):
-        nonlocal is_recording
+        nonlocal is_recording, is_paused
         error_message = None
         saved_file = None
         if not is_recording:
@@ -156,6 +170,7 @@ def main(page: ft.Page):
                     ),
                 )
                 is_recording = True
+                is_paused = False
                 if current_mode == "Area" and area_frame_overlay:
                     area_frame_overlay.set_recording(True)
             except (OSError, RuntimeError, ValueError) as error:
@@ -168,6 +183,7 @@ def main(page: ft.Page):
                 error_message = str(error)
             finally:
                 is_recording = False
+                is_paused = False
                 if area_frame_overlay:
                     area_frame_overlay.set_recording(False)
 
@@ -184,6 +200,282 @@ def main(page: ft.Page):
                 content=ft.Text(f"Saved video to:\n{saved_file}"),
                 bgcolor=BG_COLOR,
             ))
+
+    def toggle_pause(e):
+        nonlocal is_paused
+        if not is_recording:
+            return
+        try:
+            set_recording_paused(not is_paused)
+            is_paused = not is_paused
+        except RuntimeError as error:
+            page.show_dialog(ft.AlertDialog(
+                title=ft.Text("Could not change pause state"),
+                content=ft.Text(str(error)),
+                bgcolor=BG_COLOR,
+            ))
+        update_ui()
+
+    async def handle_hotkey(action):
+        if shortcut_capture_target:
+            return
+        if action == "Record" and not is_recording:
+            toggle_recording(None)
+        elif action == "Stop" and is_recording:
+            toggle_recording(None)
+        elif action == "Pause" and is_recording:
+            toggle_pause(None)
+        elif action == "Screenshot":
+            take_screenshot(None)
+
+    def install_hotkeys(shortcuts):
+        nonlocal hotkey_listener
+        callbacks = {
+            shortcut: (
+                lambda action=action: page.run_task(handle_hotkey, action)
+            )
+            for action, shortcut in shortcuts.items()
+        }
+        listener = keyboard.GlobalHotKeys(callbacks)
+        listener.start()
+        previous_listener = hotkey_listener
+        hotkey_listener = listener
+        if previous_listener:
+            previous_listener.stop()
+
+    def format_hotkey(shortcut):
+        key_names = {
+            "esc": "Esc",
+            "space": "Space",
+            "enter": "Enter",
+            "tab": "Tab",
+            "backspace": "Backspace",
+            "delete": "Delete",
+            "insert": "Insert",
+            "home": "Home",
+            "end": "End",
+            "page_up": "Page Up",
+            "page_down": "Page Down",
+            "left": "Left",
+            "right": "Right",
+            "up": "Up",
+            "down": "Down",
+        }
+        modifier_names = {
+            keyboard.Key.ctrl: "Ctrl",
+            keyboard.Key.shift: "Shift",
+            keyboard.Key.alt: "Alt",
+            keyboard.Key.cmd: "Win",
+        }
+        virtual_key_names = {
+            19: "Pause",
+            20: "Caps Lock",
+            44: "Print Screen",
+            45: "Insert",
+            46: "Delete",
+            144: "Num Lock",
+            145: "Scroll Lock",
+            166: "Browser Back",
+            167: "Browser Forward",
+            168: "Browser Refresh",
+            169: "Browser Stop",
+            170: "Browser Search",
+            171: "Browser Favorites",
+            172: "Browser Home",
+            173: "Mute",
+            174: "Volume Down",
+            175: "Volume Up",
+            176: "Media Next",
+            177: "Media Previous",
+            178: "Media Stop",
+            179: "Media Play/Pause",
+        }
+        parts = []
+        for key in keyboard.HotKey.parse(shortcut):
+            if key in modifier_names:
+                parts.append(modifier_names[key])
+            elif isinstance(key, keyboard.KeyCode):
+                if key.char:
+                    parts.append(key.char.upper())
+                elif key.vk in range(112, 136):
+                    parts.append(f"F{key.vk - 111}")
+                else:
+                    parts.append(virtual_key_names.get(key.vk, f"Key {key.vk}"))
+            else:
+                key_name = key.name.casefold()
+                parts.append(
+                    key_names.get(key_name, key_name.replace("_", " ").title())
+                )
+        return " + ".join(parts)
+
+    def begin_shortcut_capture(action):
+        nonlocal hotkey_listener, shortcut_capture_listener
+        nonlocal shortcut_capture_target
+        if shortcut_capture_target:
+            previous_field = shortcut_capture_fields[shortcut_capture_target]
+            previous_field.content.value = format_hotkey(
+                shortcut_capture_values[shortcut_capture_target]
+            )
+            previous_field.update()
+        if shortcut_capture_listener:
+            shortcut_capture_listener.stop()
+            shortcut_capture_listener.join(timeout=1)
+            shortcut_capture_listener = None
+        shortcut_capture_target = action
+        if hotkey_listener:
+            hotkey_listener.stop()
+            hotkey_listener.join(timeout=1)
+            hotkey_listener = None
+
+        field = shortcut_capture_fields[action]
+        field.content.value = "Press a key..."
+        field.update()
+
+        modifier_names = {
+            keyboard.Key.ctrl: "ctrl",
+            keyboard.Key.ctrl_l: "ctrl",
+            keyboard.Key.ctrl_r: "ctrl",
+            keyboard.Key.shift: "shift",
+            keyboard.Key.shift_l: "shift",
+            keyboard.Key.shift_r: "shift",
+            keyboard.Key.alt: "alt",
+            keyboard.Key.alt_l: "alt",
+            keyboard.Key.alt_r: "alt",
+            keyboard.Key.cmd: "cmd",
+            keyboard.Key.cmd_l: "cmd",
+            keyboard.Key.cmd_r: "cmd",
+        }
+        special_names = {
+            "esc": "esc",
+            "space": "space",
+            "enter": "enter",
+            "tab": "tab",
+            "backspace": "backspace",
+            "delete": "delete",
+            "insert": "insert",
+            "home": "home",
+            "end": "end",
+            "page_up": "page_up",
+            "page_down": "page_down",
+            "left": "left",
+            "right": "right",
+            "up": "up",
+            "down": "down",
+        }
+        held_modifiers = set()
+        pressed_modifiers = set()
+        modifier_used = False
+
+        def on_capture_key(key):
+            nonlocal modifier_used
+            if shortcut_capture_target != action:
+                return False
+            modifier = modifier_names.get(key)
+            if modifier:
+                held_modifiers.add(modifier)
+                pressed_modifiers.add(modifier)
+                return
+
+            if isinstance(key, keyboard.KeyCode):
+                key_name = key.char.casefold() if key.char else None
+                key_part = (
+                    key_name
+                    if key_name and len(key_name) == 1
+                    else f"<{key.vk}>"
+                    if key.vk is not None
+                    else None
+                )
+            else:
+                key_name = key.name.casefold()
+                if key_name in special_names:
+                    key_part = f"<{special_names[key_name]}>"
+                else:
+                    key_part = f"<{key_name}>"
+            if not key_part:
+                return
+
+            modifier_used = True
+            modifiers = [
+                name for name in ("ctrl", "alt", "shift", "cmd")
+                if name in held_modifiers
+            ]
+            shortcut = "+".join(
+                [*(f"<{name}>" for name in modifiers), key_part]
+            )
+            try:
+                keyboard.HotKey.parse(shortcut)
+            except ValueError:
+                return
+
+            page.run_task(finish_shortcut_capture, action, shortcut)
+            return False
+
+        def on_capture_release(key):
+            nonlocal modifier_used
+            if shortcut_capture_target != action:
+                return
+            modifier = modifier_names.get(key)
+            if not modifier:
+                return
+            held_modifiers.discard(modifier)
+            if not held_modifiers and pressed_modifiers and not modifier_used:
+                shortcut = "+".join(
+                    f"<{name}>"
+                    for name in ("ctrl", "alt", "shift", "cmd")
+                    if name in pressed_modifiers
+                )
+                try:
+                    keyboard.HotKey.parse(shortcut)
+                except ValueError:
+                    return
+                page.run_task(finish_shortcut_capture, action, shortcut)
+
+        try:
+            shortcut_capture_listener = keyboard.Listener(
+                on_press=on_capture_key,
+                on_release=on_capture_release,
+            )
+            shortcut_capture_listener.start()
+        except (OSError, RuntimeError) as error:
+            shortcut_capture_target = None
+            field.content.value = format_hotkey(
+                shortcut_capture_values[action]
+            )
+            field.update()
+            settings_error = shortcut_capture_fields.get("error")
+            if settings_error:
+                settings_error.value = f"Could not capture shortcut: {error}"
+                settings_error.visible = True
+                settings_error.update()
+            try:
+                install_hotkeys(advanced_settings["Hotkeys"])
+            except (OSError, RuntimeError, ValueError) as restore_error:
+                if settings_error:
+                    settings_error.value += (
+                        f"\nCould not restore existing shortcuts: {restore_error}"
+                    )
+                    settings_error.update()
+
+    async def finish_shortcut_capture(action, shortcut):
+        nonlocal hotkey_listener, shortcut_capture_listener
+        nonlocal shortcut_capture_target
+        shortcut_capture_target = None
+        if shortcut_capture_listener:
+            shortcut_capture_listener.stop()
+            shortcut_capture_listener.join(timeout=1)
+            shortcut_capture_listener = None
+        shortcut_capture_values[action] = shortcut
+        field = shortcut_capture_fields[action]
+        field.content.value = format_hotkey(shortcut)
+        field.update()
+        try:
+            install_hotkeys(advanced_settings["Hotkeys"])
+        except (OSError, RuntimeError, ValueError) as error:
+            settings_error = shortcut_capture_fields.get("error")
+            if settings_error:
+                settings_error.value = f"Could not resume shortcuts: {error}"
+                settings_error.visible = True
+                settings_error.update()
 
     def open_recordings(e):
         import os
@@ -256,6 +548,11 @@ def main(page: ft.Page):
     async def close_window(e):
         if area_frame_overlay:
             area_frame_overlay.close()
+        if hotkey_listener:
+            hotkey_listener.stop()
+        if shortcut_capture_listener:
+            shortcut_capture_listener.stop()
+            shortcut_capture_listener.join(timeout=1)
         await page.window.close()
 
     def on_mode_change(mode):
@@ -345,6 +642,8 @@ def main(page: ft.Page):
         page.update()
 
     def open_settings_dialog(e):
+        nonlocal shortcut_capture_fields, shortcut_capture_values
+        nonlocal shortcut_capture_listener
         settings_include_states = include_states.copy()
         settings_error = ft.Text(
             value="\n".join(
@@ -419,6 +718,22 @@ def main(page: ft.Page):
             bgcolor=CARD_BG, border_color=BORDER_COLOR, color="white", text_size=11, filled=True,
             border_radius=8, content_padding=8, focused_border_color="#6C5CE7", expand=True,
         )
+        shortcut_capture_values = advanced_settings["Hotkeys"].copy()
+        shortcut_inputs = {
+            action: ft.FilledButton(
+                content=ft.Text(format_hotkey(shortcut), size=11, color="white"),
+                bgcolor="#222736",
+                color="white",
+                width=140,
+                tooltip="Click, then press the shortcut key",
+                on_click=lambda _event, name=action: begin_shortcut_capture(name),
+            )
+            for action, shortcut in advanced_settings["Hotkeys"].items()
+        }
+        shortcut_capture_fields = {
+            **shortcut_inputs,
+            "error": settings_error,
+        }
         save_confirmation_switch = ft.Switch(
             value=advanced_settings["Show Save Confirmation"],
             active_color="#3B82F6",
@@ -656,6 +971,28 @@ def main(page: ft.Page):
             ],
         )
 
+        hotkeys_card = build_card(
+            ft.Icons.KEYBOARD_OUTLINED,
+            "Keyboard Shortcuts",
+            "Click a button, then press any key or a modifier combination.",
+            [
+                ft.Row(
+                    controls=[
+                        ft.Text(label, size=11, color="white", expand=True),
+                        shortcut_inputs[action],
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=8,
+                )
+                for action, label in (
+                    ("Record", "Start recording"),
+                    ("Stop", "Stop recording"),
+                    ("Pause", "Pause / Resume"),
+                    ("Screenshot", "Screenshot"),
+                )
+            ],
+        )
+
         # --- Section 3: Other Settings Card ---
         other_card = build_card(
             ft.Icons.SETTINGS_OUTLINED,
@@ -695,9 +1032,36 @@ def main(page: ft.Page):
         )
 
         def save_settings(evt):
+            nonlocal shortcut_capture_target
+            nonlocal shortcut_capture_listener
             selected_path = (save_path_input.value or "").strip()
             if not selected_path:
                 settings_error.value = "Choose a folder where recordings can be saved."
+                settings_error.visible = True
+                settings_error.update()
+                return
+
+            shortcuts = {
+                action: shortcut_capture_values[action]
+                for action in shortcut_inputs
+            }
+            try:
+                shortcut_signatures = {
+                    action: tuple(sorted(
+                        repr(key) for key in keyboard.HotKey.parse(shortcut)
+                    ))
+                    for action, shortcut in shortcuts.items()
+                }
+            except ValueError:
+                settings_error.value = (
+                    "One of the captured shortcuts is invalid. Click its button "
+                    "and press a supported key or key combination."
+                )
+                settings_error.visible = True
+                settings_error.update()
+                return
+            if len(set(shortcut_signatures.values())) != len(shortcuts):
+                settings_error.value = "Each action must use a different shortcut."
                 settings_error.visible = True
                 settings_error.update()
                 return
@@ -710,6 +1074,19 @@ def main(page: ft.Page):
                 settings_error.update()
                 return
 
+            try:
+                shortcut_capture_target = None
+                if shortcut_capture_listener:
+                    shortcut_capture_listener.stop()
+                    shortcut_capture_listener.join(timeout=1)
+                    shortcut_capture_listener = None
+                install_hotkeys(shortcuts)
+            except (OSError, RuntimeError, ValueError) as error:
+                settings_error.value = f"Could not register keyboard shortcuts: {error}"
+                settings_error.visible = True
+                settings_error.update()
+                return
+
             advanced_settings.update({
                 "Resolution": res_dropdown.value,
                 "Frame Rate": fps_dropdown.value,
@@ -717,6 +1094,7 @@ def main(page: ft.Page):
                 "Output Format": format_dropdown.value,
                 "Screenshot Format": screenshot_format_dropdown.value,
                 "Show Save Confirmation": save_confirmation_switch.value,
+                "Hotkeys": shortcuts,
                 "Save Path": selected_path,
                 "Microphone": mic_dropdown.value,
                 "Audio Source": sys_audio_dropdown.value,
@@ -728,6 +1106,24 @@ def main(page: ft.Page):
             update_ui()
 
         def cancel_settings(evt):
+            nonlocal shortcut_capture_target
+            nonlocal shortcut_capture_listener
+            if shortcut_capture_listener:
+                shortcut_capture_listener.stop()
+                shortcut_capture_listener.join(timeout=1)
+                shortcut_capture_listener = None
+            for action, field in shortcut_inputs.items():
+                field.content.value = format_hotkey(
+                    advanced_settings["Hotkeys"][action]
+                )
+                field.update()
+            shortcut_capture_target = None
+            if not hotkey_listener:
+                try:
+                    install_hotkeys(advanced_settings["Hotkeys"])
+                except (OSError, RuntimeError, ValueError) as error:
+                    settings_error.value = f"Could not resume shortcuts: {error}"
+                    settings_error.visible = True
             main_container.content = content_column
             page.update()
 
@@ -751,6 +1147,7 @@ def main(page: ft.Page):
                     controls=[
                         video_card,
                         screenshot_card,
+                        hotkeys_card,
                         audio_card,
                         include_card,
                         other_card,
@@ -866,7 +1263,9 @@ def main(page: ft.Page):
             ft.Container(expand=True),  
             get_record_controls(
                 is_recording=is_recording,
+                is_paused=is_paused,
                 on_record_click=toggle_recording,
+                on_pause_click=toggle_pause,
                 on_screenshot_click=take_screenshot,
             ),
             ft.Divider(height=1, color=BORDER_COLOR),
@@ -887,6 +1286,14 @@ def main(page: ft.Page):
 
     page.add(main_container)
     update_ui()
+    try:
+        install_hotkeys(advanced_settings["Hotkeys"])
+    except (OSError, RuntimeError, ValueError) as error:
+        page.show_dialog(ft.AlertDialog(
+            title=ft.Text("Could not register keyboard shortcuts"),
+            content=ft.Text(str(error)),
+            bgcolor=BG_COLOR,
+        ))
     page.run_task(center_window, page)
 
 async def center_window(page):

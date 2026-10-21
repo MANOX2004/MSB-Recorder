@@ -241,7 +241,11 @@ def get_include_options(include_states=None, on_toggle=None, enabled=True):
     return row1, row2
 
 def get_record_controls(
-    is_recording=False, on_record_click=None, on_screenshot_click=None
+    is_recording=False,
+    is_paused=False,
+    on_record_click=None,
+    on_pause_click=None,
+    on_screenshot_click=None,
 ):
     # රෙකෝඩින් වන විට Red පාටත්, නැති විට Purple (#6C5CE7) පාටත් වීම
     btn_bgcolor = ACCENT_RED if is_recording else "#6C5CE7"
@@ -277,18 +281,25 @@ def get_record_controls(
         tooltip="Take a screenshot",
     )
     small_btn_right = ft.IconButton(
-        icon=ft.Icons.PAUSE_ROUNDED,
-        icon_color=TEXT_MUTED,
+        icon=ft.Icons.PLAY_ARROW_ROUNDED if is_paused else ft.Icons.PAUSE_ROUNDED,
+        icon_color="white" if is_recording else TEXT_MUTED,
         icon_size=16,
         bgcolor=CARD_BG,
         style=ft.ButtonStyle(shape=ft.CircleBorder()),
         width=38,
         height=38,
-        disabled=True,
-        tooltip="Pause is not available yet",
+        on_click=on_pause_click,
+        disabled=not is_recording,
+        tooltip="Resume recording" if is_paused else "Pause recording",
     )
     
-    status_text = "Recording in progress..." if is_recording else "Press record to start"
+    status_text = (
+        "Recording paused"
+        if is_paused
+        else "Recording in progress..."
+        if is_recording
+        else "Press record to start"
+    )
 
     return ft.Column(
         controls=[
@@ -298,7 +309,11 @@ def get_record_controls(
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=20,
             ),
-            ft.Text(status_text, color=ACCENT_RED if is_recording else TEXT_MUTED, size=11),
+            ft.Text(
+                status_text,
+                color=TEXT_MUTED if is_paused else ACCENT_RED if is_recording else TEXT_MUTED,
+                size=11,
+            ),
         ],
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         spacing=6,

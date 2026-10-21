@@ -14,6 +14,7 @@ import wave
 
 # Global Recording Control Flags
 _is_recording_flag = False
+_is_paused_flag = False
 _recording_thread = None
 _recording_error = None
 _recording_started = None
@@ -805,7 +806,12 @@ def _record_screen_worker(
                     samplerate=48000, channels=channels
                 ) as recorder:
                     while _is_recording_flag:
+                        if _is_paused_flag:
+                            time.sleep(0.05)
+                            continue
                         samples = recorder.record(numframes=4800)
+                        if _is_paused_flag:
+                            continue
                         if samples.ndim == 1:
                             samples = samples.reshape(-1, 1)
                         pcm = (
@@ -902,7 +908,10 @@ def _record_screen_worker(
             frame_supplier(pipe)
             _recording_started.set()
             while _is_recording_flag:
-                frame_supplier(pipe)
+                if _is_paused_flag:
+                    time.sleep(0.05)
+                else:
+                    frame_supplier(pipe)
         except Exception as error:
             failure = error
         finally:
@@ -1129,7 +1138,8 @@ def _record_screen_worker(
 
 
 def _run_recording_worker(*args):
-    global _is_recording_flag, _recording_error, _key_listener, _audio_temp_dir
+    global _is_recording_flag, _is_paused_flag
+    global _recording_error, _key_listener, _audio_temp_dir
     try:
         _record_screen_worker(*args)
     except Exception as error:
@@ -1141,6 +1151,7 @@ def _run_recording_worker(*args):
                 _recording_error += f"\nCould not remove the incomplete video: {cleanup_error}"
     finally:
         _is_recording_flag = False
+        _is_paused_flag = False
         for thread in _audio_capture_threads:
             thread.join(timeout=10)
         if _audio_temp_dir:
@@ -1168,7 +1179,7 @@ def start_screen_recording(
     include_keys=False,
     capture_region=None,
 ):
-    global _is_recording_flag, _recording_thread, _recording_error
+    global _is_recording_flag, _is_paused_flag, _recording_thread, _recording_error
     global _recording_started, _recording_file_path
 
     if _is_recording_flag or (
@@ -1184,6 +1195,7 @@ def start_screen_recording(
     _recording_started = threading.Event()
     _recording_file_path = None
     _is_recording_flag = True
+    _is_paused_flag = False
     _recording_thread = threading.Thread(
         target=_run_recording_worker,
         args=(
@@ -1214,10 +1226,18 @@ def start_screen_recording(
         raise RuntimeError(_recording_error) from None
 
 
+def set_recording_paused(is_paused):
+    global _is_paused_flag
+    if is_paused and not _is_recording_flag:
+        raise RuntimeError("There is no active recording to pause.")
+    _is_paused_flag = bool(is_paused)
+
+
 def stop_screen_recording():
     """Screen Recording එක නතර කිරීම"""
-    global _is_recording_flag, _recording_thread
+    global _is_recording_flag, _is_paused_flag, _recording_thread
     _is_recording_flag = False
+    _is_paused_flag = False
     if _recording_thread:
         _recording_thread.join(timeout=15.0)
         if _recording_thread.is_alive():
