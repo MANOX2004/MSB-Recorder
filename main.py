@@ -1177,7 +1177,13 @@ def main(page: ft.Page):
                             color="white",
                             expand=True,
                         ),
-                        ft.TextButton("Back", on_click=cancel_settings),
+                        ft.TextButton(
+                            "Back",
+                            icon=ft.Icons.ARROW_BACK_ROUNDED,
+                            icon_color=TEXT_MUTED,
+                            style=ft.ButtonStyle(color=TEXT_MUTED),
+                            on_click=cancel_settings,
+                        ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
@@ -1197,7 +1203,14 @@ def main(page: ft.Page):
                 ),
                 ft.Row(
                     controls=[
-                        ft.TextButton("Cancel", on_click=cancel_settings),
+                        ft.TextButton(
+                            "Cancel",
+                            style=ft.ButtonStyle(
+                                color="white",
+                                bgcolor="#B42332",
+                            ),
+                            on_click=cancel_settings,
+                        ),
                         ft.FilledButton(
                             "Save Changes",
                             on_click=save_settings,
