@@ -7,6 +7,7 @@ from logic import (
     get_video_capture_devices,
     capture_region_screenshot,
     capture_window_screenshot,
+    AreaFrameOverlay,
     select_capture_region,
     start_screen_recording,
     stop_screen_recording,
@@ -37,6 +38,8 @@ def main(page: ft.Page):
     selected_window_title = "None"
     is_recording = False
     selected_area = None
+    area_frame_overlay = None
+    area_status_text = None
 
     import os
     videos_dir = os.path.join(os.path.expanduser("~"), "Videos")
@@ -145,9 +148,15 @@ def main(page: ft.Page):
                     include_cursor=include_states["Cursor"],
                     include_clicks=include_states["Clicks"],
                     include_keys=include_states["Keys"],
-                    capture_region=selected_area if current_mode == "Area" else None,
+                    capture_region=(
+                        dict(selected_area)
+                        if current_mode == "Area" and selected_area
+                        else None
+                    ),
                 )
                 is_recording = True
+                if current_mode == "Area" and area_frame_overlay:
+                    area_frame_overlay.set_recording(True)
             except (OSError, RuntimeError, ValueError) as error:
                 is_recording = False
                 error_message = str(error)
@@ -158,6 +167,8 @@ def main(page: ft.Page):
                 error_message = str(error)
             finally:
                 is_recording = False
+                if area_frame_overlay:
+                    area_frame_overlay.set_recording(False)
 
         update_ui()
         if error_message:
@@ -241,18 +252,27 @@ def main(page: ft.Page):
         page.update()
 
     async def close_window(e):
+        if area_frame_overlay:
+            area_frame_overlay.close()
         await page.window.close()
 
     def on_mode_change(mode):
         nonlocal current_mode
         if mode == "Area":
+            if selected_area and area_frame_overlay:
+                current_mode = "Area"
+                area_frame_overlay.set_visible(True)
+                update_ui()
+                return
             page.run_task(open_area_selector)
             return
         current_mode = mode
+        if area_frame_overlay:
+            area_frame_overlay.set_visible(False)
         update_ui()
 
     async def open_area_selector():
-        nonlocal current_mode, selected_area
+        nonlocal current_mode, selected_area, area_frame_overlay
         page.window.visible = False
         page.update()
         selection_error = None
@@ -274,9 +294,53 @@ def main(page: ft.Page):
             ))
             return
         if region:
-            selected_area = region
-            current_mode = "Area"
-            update_ui()
+            try:
+                def update_selected_area(updated_region):
+                    nonlocal selected_area
+                    selected_area = updated_region
+                    if area_status_text:
+                        area_status_text.value = (
+                            f"Area: {selected_area['width']} x {selected_area['height']} "
+                            "· Drag center to move; edges to resize"
+                        )
+                        page.run_task(refresh_area_status)
+
+                def report_area_overlay_error(error):
+                    async def show_error():
+                        page.show_dialog(ft.AlertDialog(
+                            title=ft.Text("Recording area frame error"),
+                            content=ft.Text(str(error)),
+                            bgcolor=BG_COLOR,
+                        ))
+
+                    page.run_task(show_error)
+
+                def exit_area_mode():
+                    async def switch_to_screen_mode():
+                        if is_recording:
+                            toggle_recording(None)
+                        on_mode_change("Screen")
+
+                    page.run_task(switch_to_screen_mode)
+
+                area_frame_overlay = AreaFrameOverlay(
+                    region,
+                    update_selected_area,
+                    exit_area_mode,
+                    report_area_overlay_error,
+                )
+                selected_area = dict(region)
+                current_mode = "Area"
+                update_ui()
+            except (OSError, RuntimeError, TimeoutError) as error:
+                page.show_dialog(ft.AlertDialog(
+                    title=ft.Text("Could not show recording area"),
+                    content=ft.Text(str(error)),
+                    bgcolor=BG_COLOR,
+                ))
+
+    async def refresh_area_status():
+        page.update()
 
     def open_settings_dialog(e):
         settings_include_states = include_states.copy()
@@ -739,7 +803,9 @@ def main(page: ft.Page):
         page.show_dialog(dialog)
 
     def update_ui():
+        nonlocal area_status_text
         content_column.controls.clear()
+        area_status_text = None
 
         def toggle_include_option(label):
             include_states[label] = not include_states[label]
@@ -755,6 +821,15 @@ def main(page: ft.Page):
             section_title("WHAT TO RECORD"),
             get_what_to_record(selected_mode=current_mode, on_select=on_mode_change),
         ]
+
+        if current_mode == "Area" and selected_area:
+            area_status_text = ft.Text(
+                f"Area: {selected_area['width']} x {selected_area['height']} "
+                "· Drag center to move; edges to resize",
+                size=9,
+                color=TEXT_MUTED,
+            )
+            controls_list.append(area_status_text)
 
         if current_mode == "Window":
             controls_list.append(get_window_picker_ui(selected_window_title, open_window_picker_dialog))

@@ -8,6 +8,7 @@ import mss
 import subprocess
 import imageio_ffmpeg
 import tempfile
+import queue
 import re
 import wave
 
@@ -20,6 +21,23 @@ _recording_file_path = None
 _audio_capture_threads = []
 _audio_temp_dir = None
 _key_listener = None
+
+
+def _fit_frame_to_resolution(frame, width, height):
+    """Scale a frame proportionally and pad it to the selected output size."""
+    source_height, source_width = frame.shape[:2]
+    scale = min(width / source_width, height / source_height)
+    fitted_width = max(1, min(width, round(source_width * scale)))
+    fitted_height = max(1, min(height, round(source_height * scale)))
+    interpolation = cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC
+    resized = cv2.resize(
+        frame, (fitted_width, fitted_height), interpolation=interpolation
+    )
+    output = np.zeros((height, width, 3), dtype=frame.dtype)
+    left = (width - fitted_width) // 2
+    top = (height - fitted_height) // 2
+    output[top:top + fitted_height, left:left + fitted_width] = resized
+    return output
 
 
 def get_audio_capture_devices():
@@ -281,6 +299,437 @@ def select_capture_region():
     return selection
 
 
+class AreaFrameOverlay:
+    def __init__(self, region, on_region_change, on_exit, on_error):
+        self._commands = queue.Queue()
+        self._ready = threading.Event()
+        self._error = None
+        self._on_region_change = on_region_change
+        self._on_exit = on_exit
+        self._on_error = on_error
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        if not self._ready.wait(timeout=5):
+            self.close()
+            raise TimeoutError("Timed out while showing the selected area frame.")
+        if self._error:
+            raise RuntimeError(f"Could not show the selected area frame: {self._error}")
+        self.update_region(region)
+
+    def update_region(self, region):
+        self._commands.put(("region", dict(region)))
+
+    def set_recording(self, is_recording):
+        self._commands.put(("recording", is_recording))
+
+    def set_visible(self, visible):
+        self._commands.put(("visible", visible))
+
+    def close(self):
+        self._commands.put(("close", None))
+
+    def _run(self):
+        import ctypes
+        import tkinter as tk
+        from ctypes import wintypes
+
+        root = None
+        escape_listener = None
+        try:
+            from pynput import keyboard
+
+            root = tk.Tk()
+            root.overrideredirect(True)
+            root.attributes("-topmost", True)
+            transparent_color = "#ff00ff"
+            root.configure(bg=transparent_color)
+            root.attributes("-transparentcolor", transparent_color)
+            canvas = tk.Canvas(
+                root,
+                bg=transparent_color,
+                highlightthickness=0,
+                bd=0,
+            )
+            canvas.pack(fill="both", expand=True)
+
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            set_window_position = user32.SetWindowPos
+            set_window_position.argtypes = (
+                wintypes.HWND,
+                wintypes.HWND,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                wintypes.UINT,
+            )
+            set_window_position.restype = wintypes.BOOL
+            set_window_display_affinity = user32.SetWindowDisplayAffinity
+            set_window_display_affinity.argtypes = (
+                wintypes.HWND,
+                wintypes.DWORD,
+            )
+            set_window_display_affinity.restype = wintypes.BOOL
+            root.update_idletasks()
+            window_handle = wintypes.HWND(int(root.wm_frame(), 0))
+            ctypes.set_last_error(0)
+            if not set_window_display_affinity(window_handle, 0x00000011):
+                raise OSError(
+                    ctypes.get_last_error(),
+                    "Could not exclude the recording-area frame from screen capture.",
+                )
+
+            region = {}
+            recording = False
+            visible = True
+            drag = None
+            exit_requested = False
+            margin = 12
+            min_size = 2
+            with mss.mss() as capture:
+                virtual_screen = dict(capture.monitors[0])
+
+            def position_overlay():
+                if not region:
+                    return
+                root.geometry(
+                    f"{region['width'] + margin * 2}x"
+                    f"{region['height'] + margin * 2}+0+0"
+                )
+                root.update_idletasks()
+                ctypes.set_last_error(0)
+                if not set_window_position(
+                    window_handle,
+                    wintypes.HWND(-1),
+                    region["left"] - margin,
+                    region["top"] - margin,
+                    region["width"] + margin * 2,
+                    region["height"] + margin * 2,
+                    0x0040,
+                ):
+                    raise OSError(
+                        ctypes.get_last_error(),
+                        "Could not position the selected area frame.",
+                    )
+                canvas.configure(
+                    width=region["width"] + margin * 2,
+                    height=region["height"] + margin * 2,
+                )
+
+            def draw_frame():
+                canvas.delete("all")
+                if not region:
+                    return
+                color = "#ff3b30" if recording else "#34c759"
+                left = margin
+                top = margin
+                right = margin + region["width"]
+                bottom = margin + region["height"]
+                canvas.create_rectangle(
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    outline=color,
+                    width=3,
+                )
+                handle_size = 8
+                for x, y in (
+                    (left, top),
+                    (right, top),
+                    (left, bottom),
+                    (right, bottom),
+                ):
+                    canvas.create_rectangle(
+                        x - handle_size / 2,
+                        y - handle_size / 2,
+                        x + handle_size / 2,
+                        y + handle_size / 2,
+                        fill=color,
+                        outline=color,
+                    )
+                close_left = right - 30
+                close_top = top + 6
+                canvas.create_rectangle(
+                    close_left,
+                    close_top,
+                    close_left + 24,
+                    close_top + 24,
+                    fill="#202020",
+                    outline=color,
+                    width=2,
+                )
+                canvas.create_line(
+                    close_left + 7,
+                    close_top + 7,
+                    close_left + 17,
+                    close_top + 17,
+                    fill=color,
+                    width=2,
+                )
+                canvas.create_line(
+                    close_left + 17,
+                    close_top + 7,
+                    close_left + 7,
+                    close_top + 17,
+                    fill=color,
+                    width=2,
+                )
+                center_x = (left + right) / 2
+                center_y = (top + bottom) / 2
+                canvas.create_line(
+                    center_x - 6,
+                    center_y,
+                    center_x + 6,
+                    center_y,
+                    fill=color,
+                    width=3,
+                )
+                canvas.create_line(
+                    center_x,
+                    center_y - 6,
+                    center_x,
+                    center_y + 6,
+                    fill=color,
+                    width=3,
+                )
+
+            def close_handle_hit(x, y):
+                close_left = margin + region["width"] - 30
+                close_top = margin + 6
+                return (
+                    close_left <= x <= close_left + 24
+                    and close_top <= y <= close_top + 24
+                )
+
+            def move_handle_hit(x, y):
+                center_x = margin + region["width"] / 2
+                center_y = margin + region["height"] / 2
+                return (x - center_x) ** 2 + (y - center_y) ** 2 <= 14 ** 2
+
+            def resize_zone(x, y):
+                left = margin
+                top = margin
+                right = margin + region["width"]
+                bottom = margin + region["height"]
+                tolerance = margin
+                near_left = abs(x - left) <= tolerance
+                near_right = abs(x - right) <= tolerance
+                near_top = abs(y - top) <= tolerance
+                near_bottom = abs(y - bottom) <= tolerance
+                on_horizontal_edge = top - tolerance <= y <= bottom + tolerance
+                on_vertical_edge = left - tolerance <= x <= right + tolerance
+
+                if near_left and near_top:
+                    return "nw"
+                if near_right and near_top:
+                    return "ne"
+                if near_left and near_bottom:
+                    return "sw"
+                if near_right and near_bottom:
+                    return "se"
+                if near_left and on_horizontal_edge:
+                    return "w"
+                if near_right and on_horizontal_edge:
+                    return "e"
+                if near_top and on_vertical_edge:
+                    return "n"
+                if near_bottom and on_vertical_edge:
+                    return "s"
+                return None
+
+            cursors = {
+                "n": "sb_v_double_arrow",
+                "s": "sb_v_double_arrow",
+                "e": "sb_h_double_arrow",
+                "w": "sb_h_double_arrow",
+                "nw": "size_nw_se",
+                "se": "size_nw_se",
+                "ne": "size_ne_sw",
+                "sw": "size_ne_sw",
+                "move": "fleur",
+                "close": "hand2",
+            }
+
+            def on_motion(event):
+                zone = None
+                if region:
+                    zone = (
+                        "close"
+                        if close_handle_hit(event.x, event.y)
+                        else (
+                            "move"
+                            if move_handle_hit(event.x, event.y)
+                            else resize_zone(event.x, event.y)
+                        )
+                    )
+                canvas.configure(cursor=cursors.get(zone, ""))
+
+            def request_exit():
+                nonlocal exit_requested
+                if visible and not exit_requested:
+                    exit_requested = True
+                    self._commands.put(("exit", None))
+
+            def on_resize_start(event):
+                nonlocal drag
+                if recording or not region:
+                    return
+                zone = (
+                    "close"
+                    if close_handle_hit(event.x, event.y)
+                    else (
+                        "move"
+                        if move_handle_hit(event.x, event.y)
+                        else resize_zone(event.x, event.y)
+                    )
+                )
+                if zone:
+                    drag = {
+                        "zone": zone,
+                        "x": event.x_root,
+                        "y": event.y_root,
+                        "region": dict(region),
+                    }
+
+            def on_resize(event):
+                if not drag or recording or drag["zone"] == "close":
+                    return
+                original = drag["region"]
+                delta_x = event.x_root - drag["x"]
+                delta_y = event.y_root - drag["y"]
+                left = original["left"]
+                top = original["top"]
+                right = left + original["width"]
+                bottom = top + original["height"]
+                zone = drag["zone"]
+
+                if zone == "move":
+                    left = min(
+                        max(
+                            left + delta_x,
+                            virtual_screen["left"],
+                        ),
+                        virtual_screen["left"] + virtual_screen["width"] - original["width"],
+                    )
+                    top = min(
+                        max(top + delta_y, virtual_screen["top"]),
+                        virtual_screen["top"] + virtual_screen["height"] - original["height"],
+                    )
+                    right = left + original["width"]
+                    bottom = top + original["height"]
+                else:
+                    if "w" in zone:
+                        left = min(
+                            max(left + delta_x, virtual_screen["left"]),
+                            right - min_size,
+                        )
+                    if "e" in zone:
+                        right = max(
+                            min(
+                                right + delta_x,
+                                virtual_screen["left"] + virtual_screen["width"],
+                            ),
+                            left + min_size,
+                        )
+                    if "n" in zone:
+                        top = min(
+                            max(top + delta_y, virtual_screen["top"]),
+                            bottom - min_size,
+                        )
+                    if "s" in zone:
+                        bottom = max(
+                            min(
+                                bottom + delta_y,
+                                virtual_screen["top"] + virtual_screen["height"],
+                            ),
+                            top + min_size,
+                        )
+
+                region.update(
+                    left=int(left),
+                    top=int(top),
+                    width=int(right - left),
+                    height=int(bottom - top),
+                )
+                position_overlay()
+                draw_frame()
+
+            def on_resize_end(_event):
+                nonlocal drag
+                if drag:
+                    zone = drag["zone"]
+                    drag = None
+                    if zone == "close":
+                        request_exit()
+                    else:
+                        self._on_region_change(dict(region))
+
+            escape_listener = keyboard.Listener(
+                on_press=lambda key: request_exit()
+                if key == keyboard.Key.esc
+                else None
+            )
+            escape_listener.start()
+            root.bind("<Escape>", lambda _event: request_exit())
+            canvas.bind("<Motion>", on_motion)
+            canvas.bind("<ButtonPress-1>", on_resize_start)
+            canvas.bind("<B1-Motion>", on_resize)
+            canvas.bind("<ButtonRelease-1>", on_resize_end)
+
+            def process_commands():
+                nonlocal recording, visible, exit_requested
+                while True:
+                    try:
+                        command, value = self._commands.get_nowait()
+                    except queue.Empty:
+                        break
+                    if command == "close":
+                        root.destroy()
+                        if escape_listener:
+                            escape_listener.stop()
+                        return
+                    if command == "exit":
+                        self._on_exit()
+                    if command == "region":
+                        region.clear()
+                        region.update(value)
+                        position_overlay()
+                        draw_frame()
+                    elif command == "recording":
+                        recording = value
+                        draw_frame()
+                    elif command == "visible":
+                        visible = value
+                        if visible:
+                            exit_requested = False
+                            root.deiconify()
+                            root.attributes("-topmost", True)
+                        else:
+                            root.withdraw()
+                if root.winfo_exists():
+                    root.after(16, process_commands)
+
+            root.after(0, process_commands)
+            self._ready.set()
+            root.mainloop()
+        except Exception as error:
+            was_ready = self._ready.is_set()
+            self._error = error
+            self._ready.set()
+            if was_ready:
+                self._on_error(error)
+        finally:
+            if escape_listener and escape_listener.is_alive():
+                escape_listener.stop()
+            if root is not None:
+                try:
+                    if root.winfo_exists():
+                        root.destroy()
+                except tk.TclError:
+                    pass
+
+
 def _record_screen_worker(
     save_dir,
     record_mode="Screen",
@@ -512,11 +961,23 @@ def _record_screen_worker(
                     start_time = time.time()
                     img = np.array(sct.grab(monitor))
                     frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-                    if frame.shape[1] != width or frame.shape[0] != height:
+                    if record_mode == "Area":
+                        if include_cursor or include_clicks:
+                            draw_pointer(
+                                frame,
+                                monitor.get("left", 0),
+                                monitor.get("top", 0),
+                                monitor["width"],
+                                monitor["height"],
+                            )
+                        frame = _fit_frame_to_resolution(frame, width, height)
+                    elif frame.shape[1] != width or frame.shape[0] != height:
                         frame = cv2.resize(
                             frame, (width, height), interpolation=cv2.INTER_CUBIC
                         )
-                    if include_cursor or include_clicks:
+                    if record_mode != "Area" and (
+                        include_cursor or include_clicks
+                    ):
                         draw_pointer(
                             frame,
                             monitor.get("left", 0),
