@@ -1,15 +1,17 @@
 # MSB Recorder
 
 MSB Recorder is a Windows desktop screen recorder built with Python and Flet.
-It supports video recording with optional audio, webcam, cursor, click, and
-keyboard capture. The main-screen Include controls are quick switches
-synchronized with the capture switches in Settings. Audio capture requires a
-microphone or Windows speaker loopback device; available inputs are listed
-automatically. When both microphone and system audio are selected, they are
-mixed automatically into the recording. Use the camera button to save a PNG
+It supports full-screen, selected-window, and drag-to-select area recording,
+with optional audio, webcam, cursor, click, and keyboard capture. The
+main-screen Include controls are quick switches synchronized with the capture
+switches in Settings. Audio capture requires a microphone or Windows speaker
+loopback device; available inputs are listed automatically. When both
+microphone and system audio are selected, they are mixed automatically into
+the recording. Use the camera button to save a PNG
 screenshot in the configured recordings folder. Screenshot Settings let you
 choose PNG or JPEG; JPEG screenshots use maximum quality. Screen mode captures
-the full screen, while Window mode captures the selected window.
+the full screen, Window mode captures the selected window, and Area mode
+captures the selected screen region.
 
 ## Requirements
 

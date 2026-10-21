@@ -136,6 +136,151 @@ def capture_window_screenshot(window_title):
         win32gui.ReleaseDC(window_handle, window_dc)
 
 
+def capture_region_screenshot(region):
+    from PIL import Image
+    from mss.exception import ScreenShotError
+
+    try:
+        with mss.mss() as screen_capture:
+            screenshot = screen_capture.grab(region)
+            return Image.frombytes("RGB", screenshot.size, screenshot.rgb)
+    except ScreenShotError as error:
+        raise RuntimeError(f"Could not capture the selected area: {error}") from error
+
+
+def select_capture_region():
+    import ctypes
+    from ctypes import wintypes
+    import tkinter as tk
+    from PIL import Image, ImageEnhance, ImageTk
+    from mss.exception import ScreenShotError
+
+    try:
+        with mss.mss() as screen_capture:
+            monitor = dict(screen_capture.monitors[0])
+            screenshot = Image.frombytes(
+                "RGB",
+                (monitor["width"], monitor["height"]),
+                screen_capture.grab(monitor).rgb,
+            )
+    except ScreenShotError as error:
+        raise RuntimeError(f"Could not capture the screen for area selection: {error}") from error
+
+    root = None
+    selection = None
+    try:
+        root = tk.Tk()
+        root.overrideredirect(True)
+        root.attributes("-topmost", True)
+        root.geometry(f"{monitor['width']}x{monitor['height']}+0+0")
+        root.update_idletasks()
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        set_window_position = user32.SetWindowPos
+        set_window_position.argtypes = (
+            wintypes.HWND,
+            wintypes.HWND,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.UINT,
+        )
+        set_window_position.restype = wintypes.BOOL
+        ctypes.set_last_error(0)
+        if not set_window_position(
+            wintypes.HWND(int(root.wm_frame(), 0)),
+            wintypes.HWND(-1),
+            monitor["left"],
+            monitor["top"],
+            monitor["width"],
+            monitor["height"],
+            0x0040,
+        ):
+            raise OSError(ctypes.get_last_error(), "Could not position the area selector.")
+
+        screenshot = ImageTk.PhotoImage(
+            ImageEnhance.Brightness(screenshot).enhance(0.55), master=root
+        )
+        canvas = tk.Canvas(
+            root,
+            width=monitor["width"],
+            height=monitor["height"],
+            highlightthickness=0,
+            cursor="crosshair",
+        )
+        canvas.pack(fill="both", expand=True)
+        canvas.create_image(0, 0, image=screenshot, anchor="nw")
+        canvas.create_text(
+            20,
+            20,
+            anchor="nw",
+            text="Drag to select an area  |  Esc to cancel",
+            fill="white",
+            font=("Segoe UI", 14, "bold"),
+        )
+        selection_rectangle = None
+        start = {}
+
+        def begin_selection(event):
+            nonlocal selection_rectangle
+            start["x"] = canvas.canvasx(event.x)
+            start["y"] = canvas.canvasy(event.y)
+            selection_rectangle = canvas.create_rectangle(
+                start["x"],
+                start["y"],
+                start["x"],
+                start["y"],
+                outline="#8B7CFF",
+                width=2,
+                fill="#6C5CE7",
+                stipple="gray50",
+            )
+
+        def update_selection(event):
+            if selection_rectangle is not None:
+                canvas.coords(
+                    selection_rectangle,
+                    start["x"],
+                    start["y"],
+                    canvas.canvasx(event.x),
+                    canvas.canvasy(event.y),
+                )
+
+        def finish_selection(event):
+            nonlocal selection
+            end_x = canvas.canvasx(event.x)
+            end_y = canvas.canvasy(event.y)
+            left = int(min(start["x"], end_x))
+            top = int(min(start["y"], end_y))
+            width = int(abs(end_x - start["x"]))
+            height = int(abs(end_y - start["y"]))
+            if width >= 2 and height >= 2:
+                selection = {
+                    "left": monitor["left"] + left,
+                    "top": monitor["top"] + top,
+                    "width": width,
+                    "height": height,
+                }
+            root.quit()
+
+        canvas.bind("<ButtonPress-1>", begin_selection)
+        canvas.bind("<B1-Motion>", update_selection)
+        canvas.bind("<ButtonRelease-1>", finish_selection)
+        root.bind("<Escape>", lambda _: root.quit())
+        root.bind_all("<Escape>", lambda _: root.quit())
+        root.protocol("WM_DELETE_WINDOW", root.quit)
+        root.focus_force()
+        root.update()
+        root.mainloop()
+    except tk.TclError as error:
+        raise RuntimeError(f"Could not open the area selector: {error}") from error
+    finally:
+        if root is not None:
+            root.destroy()
+
+    return selection
+
+
 def _record_screen_worker(
     save_dir,
     record_mode="Screen",
@@ -150,6 +295,7 @@ def _record_screen_worker(
     include_cursor=False,
     include_clicks=False,
     include_keys=False,
+    capture_region=None,
 ):
     """Capture the screen or a window and encode it with the selected settings."""
     global _is_recording_flag
@@ -329,9 +475,19 @@ def _record_screen_worker(
         if failure:
             raise failure
 
-    if record_mode == "Screen" or not window_title or window_title == "None":
+    if record_mode in {"Screen", "Area"} or not window_title or window_title == "None":
         with mss.mss() as sct:
-            monitor = sct.monitors[1]
+            if record_mode == "Area":
+                if not capture_region:
+                    raise ValueError("Select an area before starting the recording.")
+                monitor = {
+                    key: int(capture_region[key])
+                    for key in ("left", "top", "width", "height")
+                }
+                if monitor["width"] < 2 or monitor["height"] < 2:
+                    raise ValueError("The selected area is too small to record.")
+            else:
+                monitor = sct.monitors[1]
             ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
             cmd = [
                 ffmpeg_exe,
@@ -549,6 +705,7 @@ def start_screen_recording(
     include_cursor=False,
     include_clicks=False,
     include_keys=False,
+    capture_region=None,
 ):
     global _is_recording_flag, _recording_thread, _recording_error
     global _recording_started, _recording_file_path
@@ -582,6 +739,7 @@ def start_screen_recording(
             include_cursor,
             include_clicks,
             include_keys,
+            capture_region,
         ),
         daemon=True
     )

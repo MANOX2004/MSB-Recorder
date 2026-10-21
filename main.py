@@ -1,10 +1,13 @@
 import flet as ft
+import asyncio
 from datetime import datetime
 import subprocess
 from logic import (
     get_audio_capture_devices,
     get_video_capture_devices,
+    capture_region_screenshot,
     capture_window_screenshot,
+    select_capture_region,
     start_screen_recording,
     stop_screen_recording,
 )
@@ -33,7 +36,7 @@ def main(page: ft.Page):
     current_mode = "Screen"
     selected_window_title = "None"
     is_recording = False
-    selected_area = {"x": 0, "y": 0, "w": 0, "h": 0} # Area coordinates
+    selected_area = None
 
     import os
     videos_dir = os.path.join(os.path.expanduser("~"), "Videos")
@@ -123,6 +126,8 @@ def main(page: ft.Page):
                 webcam_device = advanced_settings.get("Webcam Source")
                 if not webcam_device:
                     error_message = "No webcam is available. Connect a webcam and reopen Settings."
+            if current_mode == "Area" and selected_area is None:
+                error_message = "Select an area before starting the recording."
             try:
                 if error_message:
                     raise ValueError(error_message)
@@ -140,6 +145,7 @@ def main(page: ft.Page):
                     include_cursor=include_states["Cursor"],
                     include_clicks=include_states["Clicks"],
                     include_keys=include_states["Keys"],
+                    capture_region=selected_area if current_mode == "Area" else None,
                 )
                 is_recording = True
             except (OSError, RuntimeError, ValueError) as error:
@@ -194,7 +200,11 @@ def main(page: ft.Page):
         )
         try:
             os.makedirs(save_path, exist_ok=True)
-            if current_mode == "Window":
+            if current_mode == "Area":
+                if selected_area is None:
+                    raise ValueError("Select an area before taking an area screenshot.")
+                screenshot = capture_region_screenshot(selected_area)
+            elif current_mode == "Window":
                 if not selected_window_title or selected_window_title == "None":
                     raise ValueError("Select a window before taking a window screenshot.")
                 screenshot = capture_window_screenshot(selected_window_title)
@@ -236,128 +246,37 @@ def main(page: ft.Page):
     def on_mode_change(mode):
         nonlocal current_mode
         if mode == "Area":
-            open_coming_soon_dialog(None)
+            page.run_task(open_area_selector)
             return
         current_mode = mode
         update_ui()
 
-    # Snipping Tool වැනි Area Selector එක (Ultimate Stable Version)
-    def open_area_selector(e):
-        import os
-        import pyautogui
-        
-        screenshot_path = "temp_screenshot.png"
-        screenshot = pyautogui.screenshot()
-        screenshot.save(screenshot_path)
-
-        coords = {"start_x": 0, "start_y": 0}
-
-        rect_container = ft.Container(
-            bgcolor=ft.Colors.with_opacity(0.3, "#6C5CE7"),
-            border=ft.Border(
-                top=ft.BorderSide(2, "#6C5CE7"),
-                bottom=ft.BorderSide(2, "#6C5CE7"),
-                left=ft.BorderSide(2, "#6C5CE7"),
-                right=ft.BorderSide(2, "#6C5CE7"),
-            ),
-            left=0,
-            top=0,
-            width=0,
-            height=0,
-            visible=False
-        )
-
-        def on_pan_start(evt: ft.DragStartEvent):
-            coords["start_x"] = getattr(evt, 'local_x', getattr(evt, 'x', 100))
-            coords["start_y"] = getattr(evt, 'local_y', getattr(evt, 'y', 100))
-            
-            rect_container.left = coords["start_x"]
-            rect_container.top = coords["start_y"]
-            rect_container.width = 0
-            rect_container.height = 0
-            rect_container.visible = True
-            rect_container.update()
-
-        def on_pan_update(evt: ft.DragUpdateEvent):
-            dx = getattr(evt, 'delta_x', getattr(evt, 'dx', 0))
-            dy = getattr(evt, 'delta_y', getattr(evt, 'dy', 0))
-            if dx is None: dx = 5
-            if dy is None: dy = 5
-
-            new_w = (rect_container.width or 0) + dx
-            new_h = (rect_container.height or 0) + dy
-
-            if new_w >= 0:
-                rect_container.width = new_w
-            if new_h >= 0:
-                rect_container.height = new_h
-
-            rect_container.update()
-
-        def on_pan_end(evt: ft.DragEndEvent):
-            nonlocal selected_area
-            selected_area = {
-                "x": int(rect_container.left or 0),
-                "y": int(rect_container.top or 0),
-                "w": int(rect_container.width or 100),
-                "h": int(rect_container.height or 100)
-            }
-            if area_overlay in page.views:
-                page.views.remove(area_overlay)
-            page.update()
-            
-            if os.path.exists(screenshot_path):
-                try:
-                    os.remove(screenshot_path)
-                except:
-                    pass
-
-        gesture_detector = ft.GestureDetector(
-            content=ft.Stack([
-                ft.Image(src=screenshot_path, fit="fill", expand=True),
-                ft.Container(bgcolor=ft.Colors.with_opacity(0.4, ft.Colors.BLACK), expand=True),
-                rect_container
-            ], expand=True),
-            expand=True,
-            on_pan_start=on_pan_start,
-            on_pan_update=on_pan_update,
-            on_pan_end=on_pan_end,
-        )
-
-        area_overlay = ft.View(
-            route="/snipping",
-            controls=[gesture_detector],
-            padding=0,
-            bgcolor=ft.Colors.TRANSPARENT
-        )
-
-        page.views.append(area_overlay)
+    async def open_area_selector():
+        nonlocal current_mode, selected_area
+        page.window.visible = False
         page.update()
+        selection_error = None
+        region = None
+        try:
+            await asyncio.sleep(0.2)
+            region = select_capture_region()
+        except (OSError, RuntimeError, ValueError) as error:
+            selection_error = error
+        finally:
+            page.window.visible = True
+            page.update()
 
-    # Coming Soon Dialog එක විවෘත කිරීම
-    def open_coming_soon_dialog(e):
-        def close_dlg(evt):
-            page.pop_dialog()
-
-        coming_soon_dialog = ft.AlertDialog(
-            title=ft.Row(
-                controls=[
-                    ft.Icon(ft.Icons.AUTO_AWESOME, color="#6C5CE7", size=20),
-                    ft.Text("Coming Soon!", size=14, color="white", weight=ft.FontWeight.BOLD)
-                ],
-                spacing=8
-            ),
-            content=ft.Text(
-                "Area recording feature is under development and will be available soon!",
-                size=12,
-                color=TEXT_MUTED
-            ),
-            actions=[
-                ft.TextButton("OK", on_click=close_dlg)
-            ],
-            bgcolor=BG_COLOR,
-        )
-        page.show_dialog(coming_soon_dialog)
+        if selection_error:
+            page.show_dialog(ft.AlertDialog(
+                title=ft.Text("Could not select recording area"),
+                content=ft.Text(str(selection_error)),
+                bgcolor=BG_COLOR,
+            ))
+            return
+        if region:
+            selected_area = region
+            current_mode = "Area"
+            update_ui()
 
     def open_settings_dialog(e):
         settings_include_states = include_states.copy()
