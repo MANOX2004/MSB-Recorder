@@ -41,6 +41,111 @@ def _fit_frame_to_resolution(frame, width, height):
     return output
 
 
+def _format_recorded_key(key):
+    char = getattr(key, "char", None)
+    if char and char.isprintable():
+        return "SPACE" if char.isspace() else char.upper()
+    virtual_key = getattr(key, "vk", None)
+    if isinstance(virtual_key, int) and 0x20 <= virtual_key <= 0x7E:
+        return chr(virtual_key).upper()
+
+    key_name = getattr(key, "name", None)
+    if not key_name:
+        return str(key).removeprefix("Key.").replace("_", " ").upper()
+
+    names = {
+        "alt": "ALT",
+        "alt_l": "ALT",
+        "alt_r": "ALT",
+        "backspace": "BACKSPACE",
+        "caps_lock": "CAPS LOCK",
+        "cmd": "WIN",
+        "cmd_l": "WIN",
+        "cmd_r": "WIN",
+        "ctrl": "CTRL",
+        "ctrl_l": "CTRL",
+        "ctrl_r": "CTRL",
+        "delete": "DELETE",
+        "down": "DOWN",
+        "end": "END",
+        "enter": "ENTER",
+        "esc": "ESC",
+        "home": "HOME",
+        "insert": "INSERT",
+        "left": "LEFT",
+        "media_next": "MEDIA NEXT",
+        "media_play_pause": "MEDIA PLAY/PAUSE",
+        "media_previous": "MEDIA PREVIOUS",
+        "media_stop": "MEDIA STOP",
+        "num_lock": "NUM LOCK",
+        "page_down": "PAGE DOWN",
+        "page_up": "PAGE UP",
+        "pause": "PAUSE",
+        "print_screen": "PRINT SCREEN",
+        "right": "RIGHT",
+        "scroll_lock": "SCROLL LOCK",
+        "shift": "SHIFT",
+        "shift_l": "SHIFT",
+        "shift_r": "SHIFT",
+        "space": "SPACE",
+        "tab": "TAB",
+        "up": "UP",
+    }
+    if key_name.startswith("f") and key_name[1:].isdigit():
+        return key_name.upper()
+    return names.get(key_name, key_name.replace("_", " ").upper())
+
+
+def _draw_recorded_key_overlay(frame, label, position, size, color):
+    if position not in {"Left", "Center", "Right"}:
+        raise ValueError(f"Unsupported key overlay position: {position}")
+    size_scales = {"Small": 0.6, "Medium": 1.0, "Large": 1.35}
+    if size not in size_scales:
+        raise ValueError(f"Unsupported key overlay size: {size}")
+    if (
+        len(color) != 7
+        or color[0] != "#"
+        or any(character not in "0123456789abcdefABCDEF" for character in color[1:])
+    ):
+        raise ValueError(f"Invalid key overlay color: {color}")
+
+    border_color = tuple(
+        int(color[index:index + 2], 16) for index in (5, 3, 1)
+    )
+    label = label[:64].encode("ascii", errors="replace").decode("ascii")
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    base_scale = max(0.6, min(1.0, frame.shape[1] / 1280))
+    scale = max(0.45, min(1.5, base_scale * size_scales[size]))
+    text_size, baseline = cv2.getTextSize(label, font, scale, 2)
+    padding_x = 14
+    padding_y = 10
+    box_width = text_size[0] + padding_x * 2
+    box_height = text_size[1] + baseline + padding_y * 2
+    margin = 20
+    if position == "Center":
+        left = (frame.shape[1] - box_width) // 2
+    elif position == "Right":
+        left = frame.shape[1] - box_width - margin
+    else:
+        left = margin
+    left = max(0, min(left, frame.shape[1] - box_width))
+    top = max(20, frame.shape[0] - box_height - 20)
+    right = min(frame.shape[1] - 1, left + box_width)
+    bottom = min(frame.shape[0] - 1, top + box_height)
+    cv2.rectangle(frame, (left, top), (right, bottom), (28, 31, 42), -1)
+    cv2.rectangle(frame, (left, top), (right, bottom), border_color, 2)
+    cv2.putText(
+        frame,
+        label,
+        (left + padding_x, top + padding_y + text_size[1]),
+        font,
+        scale,
+        border_color,
+        2,
+        cv2.LINE_AA,
+    )
+
+
 def get_audio_capture_devices():
     import soundcard
 
@@ -745,6 +850,9 @@ def _record_screen_worker(
     include_cursor=False,
     include_clicks=False,
     include_keys=False,
+    key_overlay_position="Left",
+    key_overlay_size="Medium",
+    key_overlay_color="#6C5CE7",
     capture_region=None,
 ):
     """Capture the screen or a window and encode it with the selected settings."""
@@ -772,20 +880,40 @@ def _record_screen_worker(
     _audio_temp_dir = audio_temp_dir
     audio_sessions = []
     audio_errors = []
-    key_overlay = {"label": "", "timestamp": 0.0}
+    key_overlay = {"label": "", "timestamp": 0.0, "pressed": {}}
+    key_overlay_lock = threading.Lock()
 
     if include_keys:
         from pynput import keyboard
 
-        def on_key_press(key):
-            try:
-                key_overlay["label"] = key.char or key.name
-            except AttributeError:
-                key_overlay["label"] = str(key).replace("Key.", "")
+        def update_key_overlay_label():
+            pressed_keys = key_overlay["pressed"]
+            modifier_order = ("CTRL", "ALT", "SHIFT", "WIN")
+            labels = [
+                modifier for modifier in modifier_order
+                if modifier in pressed_keys.values()
+            ]
+            labels.extend(
+                label for label in pressed_keys.values()
+                if label not in modifier_order
+            )
+            key_overlay["label"] = " + ".join(labels)
             key_overlay["timestamp"] = time.time()
 
+        def on_key_press(key):
+            with key_overlay_lock:
+                key_overlay["pressed"][key] = _format_recorded_key(key)
+                update_key_overlay_label()
+
+        def on_key_release(key):
+            with key_overlay_lock:
+                key_overlay["pressed"].pop(key, None)
+
         global _key_listener
-        _key_listener = keyboard.Listener(on_press=on_key_press)
+        _key_listener = keyboard.Listener(
+            on_press=on_key_press,
+            on_release=on_key_release,
+        )
         _key_listener.start()
     if audio_temp_dir:
         global _audio_capture_threads
@@ -889,17 +1017,20 @@ def _record_screen_worker(
             cv2.circle(frame, (x, y), 6, (0, 0, 0), 1)
 
     def draw_key_overlay(frame):
-        if include_keys and key_overlay["label"] and time.time() - key_overlay["timestamp"] < 2:
-            cv2.putText(
-                frame,
-                key_overlay["label"],
-                (20, frame.shape[0] - 24),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (255, 255, 255),
-                2,
-                cv2.LINE_AA,
-            )
+        if not include_keys:
+            return
+        with key_overlay_lock:
+            label = key_overlay["label"]
+            age = time.time() - key_overlay["timestamp"]
+        if not label or age >= 2:
+            return
+        _draw_recorded_key_overlay(
+            frame,
+            label,
+            key_overlay_position,
+            key_overlay_size,
+            key_overlay_color,
+        )
 
     def record_frames(pipe, stderr_file, frame_supplier):
         global _recording_started
@@ -1177,6 +1308,9 @@ def start_screen_recording(
     include_cursor=False,
     include_clicks=False,
     include_keys=False,
+    key_overlay_position="Left",
+    key_overlay_size="Medium",
+    key_overlay_color="#6C5CE7",
     capture_region=None,
 ):
     global _is_recording_flag, _is_paused_flag, _recording_thread, _recording_error
@@ -1212,6 +1346,9 @@ def start_screen_recording(
             include_cursor,
             include_clicks,
             include_keys,
+            key_overlay_position,
+            key_overlay_size,
+            key_overlay_color,
             capture_region,
         ),
         daemon=True

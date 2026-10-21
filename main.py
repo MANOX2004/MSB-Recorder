@@ -103,6 +103,9 @@ def main(page: ft.Page):
         "Microphone": microphone_devices[0]["id"] if microphone_devices else None,
         "Audio Source": loopback_devices[0]["id"] if loopback_devices else None,
         "Webcam Source": webcam_devices[0] if webcam_devices else None,
+        "Key Overlay Position": "Left",
+        "Key Overlay Size": "Medium",
+        "Key Overlay Color": "#6C5CE7",
     }
 
     # මෙතැන expand=True සහ SPACE_BETWEEN මඟින් මුළු ඉඩ හරියටම බෙදා හරිනු ලැබේ
@@ -163,6 +166,9 @@ def main(page: ft.Page):
                     include_cursor=include_states["Cursor"],
                     include_clicks=include_states["Clicks"],
                     include_keys=include_states["Keys"],
+                    key_overlay_position=advanced_settings["Key Overlay Position"],
+                    key_overlay_size=advanced_settings["Key Overlay Size"],
+                    key_overlay_color=advanced_settings["Key Overlay Color"],
                     capture_region=(
                         dict(selected_area)
                         if current_mode == "Area" and selected_area
@@ -832,6 +838,73 @@ def main(page: ft.Page):
         cursor_switch = include_switch("Cursor")
         clicks_switch = include_switch("Clicks")
         keys_switch = include_switch("Keys")
+        key_overlay_position_dropdown = ft.Dropdown(
+            value=advanced_settings["Key Overlay Position"],
+            options=[
+                ft.dropdown.Option("Left"),
+                ft.dropdown.Option("Center"),
+                ft.dropdown.Option("Right"),
+            ],
+            bgcolor=CARD_BG,
+            border_color=BORDER_COLOR,
+            color="white",
+            text_size=11,
+            filled=True,
+            border_radius=8,
+            content_padding=8,
+            focused_border_color="#6C5CE7",
+            expand=True,
+        )
+        key_overlay_size_dropdown = ft.Dropdown(
+            value=advanced_settings["Key Overlay Size"],
+            options=[
+                ft.dropdown.Option("Small"),
+                ft.dropdown.Option("Medium"),
+                ft.dropdown.Option("Large"),
+            ],
+            bgcolor=CARD_BG,
+            border_color=BORDER_COLOR,
+            color="white",
+            text_size=11,
+            filled=True,
+            border_radius=8,
+            content_padding=8,
+            focused_border_color="#6C5CE7",
+            expand=True,
+        )
+        key_overlay_color = advanced_settings["Key Overlay Color"]
+        key_overlay_color_preview = ft.Container(
+            width=26,
+            height=26,
+            bgcolor=key_overlay_color,
+            border=card_border("#FFFFFF"),
+            border_radius=6,
+        )
+
+        def choose_key_overlay_color(_event):
+            import tkinter as tk
+            from tkinter import colorchooser
+
+            root = None
+            try:
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                _, selected_color = colorchooser.askcolor(
+                    color=key_overlay_color_preview.bgcolor,
+                    parent=root,
+                    title="Choose Keys Overlay Color",
+                )
+                if selected_color:
+                    key_overlay_color_preview.bgcolor = selected_color.upper()
+                    key_overlay_color_preview.update()
+            except tk.TclError as error:
+                settings_error.value = f"Could not open the color picker: {error}"
+                settings_error.visible = True
+                settings_error.update()
+            finally:
+                if root is not None:
+                    root.destroy()
 
         # ---------------- Other Settings Controls (Tkinter Folder Picker) ----------------
         save_path_input = ft.TextField(
@@ -1011,6 +1084,49 @@ def main(page: ft.Page):
             ],
         )
 
+        keys_overlay_card = build_card(
+            ft.Icons.KEYBOARD_OUTLINED,
+            "Keys Overlay",
+            "Choose where key presses appear and customize their size and color.",
+            [
+                ft.Row(
+                    controls=[
+                        ft.Column(
+                            [
+                                ft.Text("Position", size=10, color=TEXT_MUTED),
+                                key_overlay_position_dropdown,
+                            ],
+                            expand=True,
+                            spacing=2,
+                        ),
+                        ft.Column(
+                            [
+                                ft.Text("Size", size=10, color=TEXT_MUTED),
+                                key_overlay_size_dropdown,
+                            ],
+                            expand=True,
+                            spacing=2,
+                        ),
+                    ],
+                    spacing=8,
+                ),
+                ft.Row(
+                    controls=[
+                        ft.Text("Overlay color", size=11, color="white", expand=True),
+                        key_overlay_color_preview,
+                        ft.FilledButton(
+                            "Choose color",
+                            on_click=choose_key_overlay_color,
+                            bgcolor="#222736",
+                            color="white",
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=8,
+                ),
+            ],
+        )
+
         hotkeys_card = build_card(
             ft.Icons.KEYBOARD_OUTLINED,
             "Keyboard Shortcuts",
@@ -1137,6 +1253,9 @@ def main(page: ft.Page):
                 "Microphone": mic_dropdown.value,
                 "Audio Source": sys_audio_dropdown.value,
                 "Webcam Source": webcam_dropdown.value,
+                "Key Overlay Position": key_overlay_position_dropdown.value,
+                "Key Overlay Size": key_overlay_size_dropdown.value,
+                "Key Overlay Color": key_overlay_color_preview.bgcolor,
             })
             include_states.update(settings_include_states)
             settings_error.visible = False
@@ -1194,6 +1313,7 @@ def main(page: ft.Page):
                         hotkeys_card,
                         audio_card,
                         include_card,
+                        keys_overlay_card,
                         other_card,
                         settings_error,
                     ],

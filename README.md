@@ -27,6 +27,12 @@ set by clicking the shortcut button and pressing the desired key or key
 combination, including a single modifier key; the defaults are F9, F10, F11,
 and F12. Each button shows the action name beside its assigned key. Pause
 temporarily suspends captured video and audio.
+Enable the Keys Include switch to show pressed keys in the recording. Special
+keys use readable labels such as ENTER, SHIFT, TAB, arrow keys, and F-keys;
+key combinations are shown together in a high-contrast overlay for two seconds.
+The Keys Overlay settings let you place the indicator at the bottom left,
+center, or right, choose a small, medium, or large size, and select a custom
+overlay color.
 
 ## Requirements
 
