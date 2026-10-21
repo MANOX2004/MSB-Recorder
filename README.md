@@ -34,6 +34,8 @@ The Keys Overlay settings let you place the indicator at the bottom left,
 center, or right, choose a small, medium, or large size, and select a custom
 overlay color. Choose All Keys to display every key press, or Special Keys to
 hide letters and numbers while still displaying special keys.
+The Webcam Overlay settings let you choose a camera and place its inset in any
+of the four corners, with a small gap from the edges.
 Press Save Changes to keep Settings selections between app launches. They are
 stored for the current Windows user in
 `%LOCALAPPDATA%\MSB Recorder\settings.json` and restored after a computer restart.

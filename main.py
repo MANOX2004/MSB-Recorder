@@ -108,6 +108,7 @@ def main(page: ft.Page):
         "Key Overlay Size": "Medium",
         "Key Overlay Color": "#6C5CE7",
         "Key Overlay Key Type": "All Keys",
+        "Webcam Position": "Top Right",
     }
     settings_load_error = None
     try:
@@ -222,6 +223,7 @@ def main(page: ft.Page):
                     key_overlay_size=advanced_settings["Key Overlay Size"],
                     key_overlay_color=advanced_settings["Key Overlay Color"],
                     key_overlay_key_type=advanced_settings["Key Overlay Key Type"],
+                    webcam_position=advanced_settings["Webcam Position"],
                     capture_region=(
                         dict(selected_area)
                         if current_mode == "Area" and selected_area
@@ -888,6 +890,24 @@ def main(page: ft.Page):
             disabled=not webcam_devices,
         )
         webcam_switch = include_switch("Webcam")
+        webcam_position_dropdown = ft.Dropdown(
+            value=advanced_settings["Webcam Position"],
+            options=[
+                ft.dropdown.Option("Top Left"),
+                ft.dropdown.Option("Top Right"),
+                ft.dropdown.Option("Bottom Left"),
+                ft.dropdown.Option("Bottom Right"),
+            ],
+            bgcolor=CARD_BG,
+            border_color=BORDER_COLOR,
+            color="white",
+            text_size=11,
+            filled=True,
+            border_radius=8,
+            content_padding=8,
+            focused_border_color="#6C5CE7",
+            expand=True,
+        )
         cursor_switch = include_switch("Cursor")
         clicks_switch = include_switch("Clicks")
         keys_switch = include_switch("Keys")
@@ -1119,8 +1139,7 @@ def main(page: ft.Page):
             [
                 ft.Row(
                     controls=[
-                        ft.Text("Webcam", size=11, color="white", expand=True),
-                        webcam_dropdown,
+                        ft.Text("Enable webcam overlay", size=11, color="white", expand=True),
                         webcam_switch,
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -1149,6 +1168,28 @@ def main(page: ft.Page):
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     spacing=6,
+                ),
+            ],
+        )
+
+        webcam_card = build_card(
+            ft.Icons.VIDEOCAM_OUTLINED,
+            "Webcam Overlay",
+            "Choose the camera and one of the four inset corners.",
+            [
+                ft.Row(
+                    controls=[
+                        ft.Text("Camera", size=11, color="white", width=80),
+                        webcam_dropdown,
+                    ],
+                    spacing=8,
+                ),
+                ft.Row(
+                    controls=[
+                        ft.Text("Position", size=11, color="white", expand=True),
+                        webcam_position_dropdown,
+                    ],
+                    spacing=8,
                 ),
             ],
         )
@@ -1333,6 +1374,7 @@ def main(page: ft.Page):
                 "Key Overlay Size": key_overlay_size_dropdown.value,
                 "Key Overlay Color": key_overlay_color_preview.bgcolor,
                 "Key Overlay Key Type": key_overlay_key_type_dropdown.value,
+                "Webcam Position": webcam_position_dropdown.value,
             }
             try:
                 save_settings_file(updated_settings, settings_include_states)
@@ -1406,6 +1448,7 @@ def main(page: ft.Page):
                         hotkeys_card,
                         audio_card,
                         include_card,
+                        webcam_card,
                         keys_overlay_card,
                         other_card,
                         settings_error,

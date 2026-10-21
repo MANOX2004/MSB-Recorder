@@ -378,6 +378,79 @@ def _draw_cursor_image(
     ).astype(np.uint8)
 
 
+def _webcam_input_arguments(webcam_device):
+    if not webcam_device:
+        return []
+    return [
+        "-thread_queue_size", "512",
+        "-rtbufsize", "100M",
+        "-video_size", "640x480",
+        "-framerate", "30",
+        "-vcodec", "mjpeg",
+        "-f", "dshow",
+        "-i", f"video={webcam_device}",
+    ]
+
+
+def _webcam_overlay_arguments(webcam_device, position):
+    if not webcam_device:
+        return []
+    positions = {
+        "Top Left": ("20", "20"),
+        "Top Right": ("main_w-overlay_w-20", "20"),
+        "Bottom Left": ("20", "main_h-overlay_h-20"),
+        "Bottom Right": ("main_w-overlay_w-20", "main_h-overlay_h-20"),
+        "Left": ("20", "20"),
+        "Right": ("main_w-overlay_w-20", "20"),
+    }
+    if position not in positions:
+        raise ValueError(f"Unsupported webcam overlay position: {position}")
+
+    position_x, position_y = positions[position]
+    return [
+        "-filter_complex",
+        "[1:v]scale=320:-1[webcam];"
+        f"[0:v][webcam]overlay={position_x}:{position_y}:shortest=1[vout]",
+        "-map", "[vout]",
+    ]
+
+
+def _format_ffmpeg_recording_error(return_code, details, failure, webcam_device):
+    details_lower = details.casefold()
+    webcam_open_failed = (
+        "could not run graph" in details_lower
+        or "device already in use" in details_lower
+        or (
+            "[dshow" in details_lower
+            and "error opening input" in details_lower
+        )
+    )
+    if webcam_device and webcam_open_failed:
+        return (
+            f'Could not start the webcam "{webcam_device}". Windows reports '
+            "that the camera may be in use by another app or unavailable. "
+            "Close the Camera app, video-call apps, or browser tabs using the "
+            "webcam, then try again."
+        )
+
+    message = f"FFmpeg exited with code {return_code}: {details[-2000:]}"
+    if failure:
+        return f"{failure}\n{message}"
+    return message
+
+
+def _wait_for_ffmpeg(pipe, timeout=5):
+    try:
+        return pipe.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        pipe.terminate()
+        try:
+            return pipe.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            pipe.kill()
+            return pipe.wait()
+
+
 def get_audio_capture_devices():
     import soundcard
 
@@ -1086,6 +1159,7 @@ def _record_screen_worker(
     key_overlay_size="Medium",
     key_overlay_color="#6C5CE7",
     key_overlay_key_type="All Keys",
+    webcam_position="Right",
     capture_region=None,
 ):
     """Capture the screen or a window and encode it with the selected settings."""
@@ -1107,6 +1181,15 @@ def _record_screen_worker(
         raise ValueError(f"Unsupported output format: {output_format}")
     if key_overlay_key_type not in {"All Keys", "Special Keys"}:
         raise ValueError(f"Unsupported key overlay type: {key_overlay_key_type}")
+    if webcam_position not in {
+        "Left",
+        "Right",
+        "Top Left",
+        "Top Right",
+        "Bottom Left",
+        "Bottom Right",
+    }:
+        raise ValueError(f"Unsupported webcam overlay position: {webcam_position}")
     global _recording_file_path, _audio_temp_dir
     _recording_file_path = file_path
 
@@ -1211,18 +1294,6 @@ def _record_screen_worker(
         if audio_inputs
         else file_path
     )
-
-    def add_video_inputs(command):
-        if webcam_device:
-            command.extend([
-                "-f", "dshow",
-                "-framerate", str(frame_rate),
-                "-i", f"video={webcam_device}",
-                "-filter_complex",
-                "[1:v]scale=320:-1[webcam];"
-                "[0:v][webcam]overlay=main_w-overlay_w-20:20[vout]",
-                "-map", "[vout]",
-            ])
 
     def draw_pointer(frame, screen_x, screen_y, capture_width, capture_height):
         if not include_cursor and not include_clicks:
@@ -1329,13 +1400,18 @@ def _record_screen_worker(
                     if failure is None:
                         failure = error
 
-        return_code = pipe.wait()
+        return_code = _wait_for_ffmpeg(pipe)
         if return_code:
             stderr_file.seek(0)
             details = stderr_file.read().decode("utf-8", errors="replace").strip()
-            message = f"FFmpeg exited with code {return_code}: {details[-2000:]}"
+            message = _format_ffmpeg_recording_error(
+                return_code,
+                details,
+                failure,
+                webcam_device,
+            )
             if failure:
-                raise RuntimeError(f"{failure}\n{message}") from failure
+                raise RuntimeError(message) from failure
             raise RuntimeError(message)
         if failure:
             raise failure
@@ -1363,12 +1439,16 @@ def _record_screen_worker(
                 '-pix_fmt', 'bgr24',
                 '-r', str(frame_rate),
                 '-i', '-',
+            ]
+            cmd.extend(_webcam_input_arguments(webcam_device))
+            cmd.extend([
                 '-c:v', 'libx264',
                 '-crf', str(quality_crf),
                 '-preset', 'ultrafast',
                 '-pix_fmt', 'yuv420p',
-            ]
-            add_video_inputs(cmd)
+                '-shortest',
+            ])
+            cmd.extend(_webcam_overlay_arguments(webcam_device, webcam_position))
             cmd.append(video_file_path)
             with tempfile.TemporaryFile() as stderr_file:
                 pipe = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=stderr_file)
@@ -1426,12 +1506,16 @@ def _record_screen_worker(
             '-pix_fmt', 'bgr24',
             '-r', str(frame_rate),
             '-i', '-',
+        ]
+        cmd.extend(_webcam_input_arguments(webcam_device))
+        cmd.extend([
             '-c:v', 'libx264',
             '-crf', str(quality_crf),
             '-preset', 'ultrafast',
             '-pix_fmt', 'yuv420p',
-        ]
-        add_video_inputs(cmd)
+            '-shortest',
+        ])
+        cmd.extend(_webcam_overlay_arguments(webcam_device, webcam_position))
         cmd.append(video_file_path)
         with tempfile.TemporaryFile() as stderr_file:
             pipe = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=stderr_file)
@@ -1588,6 +1672,7 @@ def start_screen_recording(
     key_overlay_size="Medium",
     key_overlay_color="#6C5CE7",
     key_overlay_key_type="All Keys",
+    webcam_position="Right",
     capture_region=None,
 ):
     global _is_recording_flag, _is_paused_flag, _recording_thread, _recording_error
@@ -1627,6 +1712,7 @@ def start_screen_recording(
             key_overlay_size,
             key_overlay_color,
             key_overlay_key_type,
+            webcam_position,
             capture_region,
         ),
         daemon=True

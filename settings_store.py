@@ -33,6 +33,10 @@ def load_settings(default_settings, default_include_states):
     if isinstance(saved_settings, dict):
         for key, default in default_settings.items():
             value = saved_settings.get(key, default)
+            if key == "Webcam Position":
+                value = {"Left": "Top Left", "Right": "Top Right"}.get(
+                    value, value
+                )
             if isinstance(default, dict):
                 if isinstance(value, dict):
                     settings[key] = {
@@ -74,6 +78,18 @@ def load_settings(default_settings, default_include_states):
             elif key == "Key Overlay Position" and (
                 not isinstance(value, str)
                 or value not in {"Left", "Center", "Right"}
+            ):
+                continue
+            elif key == "Webcam Position" and (
+                not isinstance(value, str)
+                or value not in {
+                    "Left",
+                    "Right",
+                    "Top Left",
+                    "Top Right",
+                    "Bottom Left",
+                    "Bottom Right",
+                }
             ):
                 continue
             elif key == "Key Overlay Size" and (
