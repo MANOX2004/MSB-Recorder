@@ -1,0 +1,14 @@
+flet
+numpy
+opencv-python
+mss
+imageio-ffmpeg
+screeninfo
+pywin32
+pyautogui
+PyGetWindow
+PyScreeze
+SoundCard
+pynput
+requests
+pillow
